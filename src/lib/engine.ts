@@ -1,5 +1,7 @@
 import { Fighter, BoutOdds, SimResult, SimRound, WinMethod, DivisionId } from "./types";
 
+export type { SimResult, SimRound, BoutOdds, WinMethod };
+
 // ============ OCTAGON HQ — Fight Math Engine ============
 // Everything here is pure math: Elo → probability → moneyline → simulator.
 // The outcome distribution matches the probability model, so betting lines
@@ -144,7 +146,7 @@ function timeInRound(): string {
   return `${m}:${String(s).padStart(2, "0")}`;
 }
 
-function scorecards(pA: number): [number, number, number][] {
+function scorecards(pA: number): [number, number][] {
   // three judges; dominance → wider cards
   const dom = Math.abs(pA - 0.5) * 2; // 0..1
   return [0, 1, 2].map(() => {

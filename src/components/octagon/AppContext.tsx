@@ -11,6 +11,7 @@ export interface BoutSpec {
   houseA?: number; // real/known house line
   houseB?: number;
   eventId?: string;
+  title?: string;   // "UFC Featherweight Title" — mark title bouts
 }
 
 interface AppContextValue {

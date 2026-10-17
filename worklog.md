@@ -33,3 +33,25 @@ Work Log:
 Stage Summary:
 - App running on port 3000, HTTP 200, all features browser-verified
 - Deliverable: fully redesigned OCTAGON HQ replacing buggy UFC Card Creator
+
+---
+Task ID: 3
+Agent: main
+Task: Expand roster from 190 to 500+ fighters including legends (user request: "go up to 500 at least or as much as u can with legends")
+
+Work Log:
+- Fixed latent bugs found via tsc: title union widened to accept "T"/"I"/"V" shorthands; engine re-exports SimResult; BettingDialogs FightSimDialog missing setBetSpec destructure (runtime crash on BET buttons); BetHistory open.length -> openBets.length; BoutSpec gained title?: string (EventsTab type error); SimResult.scorecards typed as [number,number][] to match actual data
+- Fixed data glitches: "Léo? Santos"/"Alejandro? Escamilla"/"Brandon? Ivanov" placeholder names cleaned; Mario Pinto impossible double-fight on Aug 2 2025 + 10-1 record vs 2 log losses corrected to 9-2
+- Added Fighter.status ("active"/"retired") + Fighter.legend (HOF flag) to types
+- Built depth.ts generator: deterministic seeded RNG (mulberry32 + FNV name hash) synthesizes 4-6 bout log entries per depth fighter from real W-L records, win-method splits, division opponent pools & style archetypes — hydration-safe (identical server/client)
+- Hand-crafted 71 HOF icon careers with real fight histories: Jones (11 bouts incl. Gane/Stipe), GSP, Khabib, A.Silva, DJ, Aldo, Stipe, Ngannou, DC, Lesnar, Cain, JDS, Werdum, Overeem, Arlovski, Shogun, Machida, Evans, Ortiz, Liddell, Rampage, W.Silva, Hendo, Sonnen, Gustafsson, Teixeira, Griffin, Weidman, Rockhold, Bisping, Franklin, Belfort, Jacare, Romero, Mousasi, Tanner, Hughes, Lawler, Hendricks, Woodley, Askren, N.Diaz, Condit, MacDonald, Maia, Masvidal, Serra, McGregor, Poirier, Ferguson, Cerrone, Pettis, Alvarez, RDA, B.Henderson, Edgar, KZ, Mendes, Cruz, Dillashaw, Garbrandt, Faber, Barao, Cejudo, Benavidez, Nunes, Rousey, Tate, Holm, Cyborg, GDR, Joanna, Esparza
+- Added ~89 retired vets (Formiga, Cub, Zabit, Stephens, OSP, A.Smith, Wonderboy, Sanchez, Kampmann, D.Kim, Perry, Guida, Lauzon, Felder, Iaquinta, Lamas, Elkins, R.Hall, Bermudez, Barzola, Lineker, Dodson, Assunção, Rivera, Almeida, Wineland, Yahya, Schnell, Nam, Modafferi, Chookagian, Eye, J.Maia, V.Araujo, A.Lee, Honchak, Montaño, Gadelha, Kowalkiewicz, Torres, Waterson, Herrig, N.Nunes, Zingano, McMann, Carmouche, etc.)
+- Added ~246 active depth fighters (Chandler, Covington, Burns, Luque, Magny, Cannonier, Vettori, Hermansson, Shara, Dolidze-via-pool, Tuivasa, Almeida, Jamahal Hill, Thiago Santos, Spann, Walker, Aldana, Vieira, Mayra, Ribas, Marina Rodriguez, Angela Hill, Nicolau, Mokaev, Rob Font, Kyler Phillips, Patchy Mix, Dan Ige, Emmett, Chikadze, Barboza, Jim Miller, Dober, Turner, Rebecki, Klein, Bahamondes, Ziam, etc.)
+- index.ts: assembled RAW_ROSTER + id-based dedupe (first wins); p4pList excludes retired; searchFighters gained "legends" filter; exported LEGENDS + HOF_ICONS
+- UI: RosterTab LEGENDS filter chip + HOF gold badge + RETIRED tag on tiles; FighterProfile HALL OF FAME badge, RETIRED chip, prime-era Elo note, retired-aware footnote; HomeTab FIGHTERS ON FILE stat (506/160) + HALL OF FAME showcase strip (top 8 icons by elo); DivisionsTab per-division retired-legend counts
+- Verified end-to-end with agent-browser: 506 total, 160 legends filter results, Khabib profile (4 title-fight finishes), fantasy booking Khabib vs GSP → $25 bet @ +100 → sim → KO/TKO R4 → settled $125 (exact), no console errors, no mobile overflow, tsc clean, eslint clean, production build passes
+
+Stage Summary:
+- Roster: 190 → 506 fighters (71 HOF icons, 160 retired total, 346 active) across 11 divisions
+- New files: depth.ts (generator+lg/ret helpers), roster-legends.ts, roster-legends-2.ts, roster-legends-w.ts, roster-depth-1/2/3/w.ts
+- Fantasy matchmaking: retired legends bookable in Fight Lab with prime-era Elo; betting math unchanged and exact

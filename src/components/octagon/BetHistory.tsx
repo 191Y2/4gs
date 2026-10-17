@@ -73,7 +73,7 @@ export function BetHistorySheet({ open, onOpenChange }: { open: boolean; onOpenC
           {openBets.length > 0 && (
             <div>
               <h3 className="mb-2 flex items-center gap-1.5 text-[10px] font-display tracking-[0.2em] text-[#e0b64c]">
-                <DollarSign className="h-3.5 w-3.5" /> OPEN BETS · {open.length}
+                <DollarSign className="h-3.5 w-3.5" /> OPEN BETS · {openBets.length}
               </h3>
               <div className="space-y-1.5">
                 {openBets.map((b) => {

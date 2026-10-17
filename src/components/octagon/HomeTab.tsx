@@ -2,13 +2,13 @@
 
 import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
-import { CHAMPIONS, p4pList, RESULTS_TICKER, EVENTS, ROSTER, getFighter } from "@/lib/data";
+import { CHAMPIONS, p4pList, RESULTS_TICKER, EVENTS, ROSTER, HOF_ICONS, LEGENDS, getFighter } from "@/lib/data";
 import { overallRating, fmtOdds } from "@/lib/engine";
 import { useBetStore } from "@/lib/store";
 import { useApp } from "./AppContext";
 import { FighterAvatar, Flag, RecordText, OvrBadge, DivisionChip } from "./shared";
 import { Button } from "@/components/ui/button";
-import { Crown, Swords, CalendarDays, TrendingUp, DollarSign, ArrowRight, Zap, Flame } from "lucide-react";
+import { Crown, Swords, CalendarDays, TrendingUp, DollarSign, ArrowRight, Zap, Flame, Trophy } from "lucide-react";
 
 // ---------- countdown ----------
 export function Countdown({ date, label }: { date: string; label: string }) {
@@ -64,6 +64,7 @@ export function HomeTab() {
   const menP4P = p4pList("men");
   const womenP4P = p4pList("women");
   const nextEvent = EVENTS[0];
+  const hofIcons = [...HOF_ICONS].sort((a, b) => b.elo - a.elo).slice(0, 8);
   const mainEventA = getFighter(nextEvent.bouts[0].aId);
   const mainEventB = getFighter(nextEvent.bouts[0].bId);
 
@@ -109,8 +110,9 @@ export function HomeTab() {
               <div className="num font-display text-2xl font-bold text-[#e0b64c]">{CHAMPIONS.length}</div>
             </div>
             <div className="rounded-xl border border-white/10 bg-black/30 p-3">
-              <div className="text-[9px] font-display tracking-[0.2em] text-zinc-500">PPVS ON PARAMOUNT+</div>
-              <div className="font-display text-2xl font-bold text-white">2026</div>
+              <div className="text-[9px] font-display tracking-[0.2em] text-zinc-500">FIGHTERS ON FILE</div>
+              <div className="num font-display text-2xl font-bold text-white">{ROSTER.length}</div>
+              <div className="text-[9px] text-zinc-600">{LEGENDS.length} retired legends included</div>
             </div>
           </div>
 
@@ -205,6 +207,42 @@ export function HomeTab() {
                 </div>
               </div>
               <div className="mt-2.5"><DivisionChip division={c.division} /></div>
+            </motion.button>
+          ))}
+        </div>
+      </section>
+
+      {/* HALL OF FAME */}
+      <section>
+        <div className="mb-4 flex items-end justify-between">
+          <div>
+            <h2 className="flex items-center gap-2 font-display text-xl font-bold text-white">
+              <Trophy className="h-5 w-5 text-[#e0b64c]" /> HALL OF FAME
+            </h2>
+            <p className="mt-0.5 text-xs text-zinc-500">
+              {HOF_ICONS.length} icons · prime-era engine ratings · fantasy-book them in the Fight Lab
+            </p>
+          </div>
+        </div>
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 xl:grid-cols-8">
+          {hofIcons.map((f, i) => (
+            <motion.button
+              key={f.id}
+              initial={{ opacity: 0, y: 12 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: i * 0.03 }}
+              onClick={() => openProfile(f.id)}
+              className="group rounded-xl border border-[#e0b64c]/20 bg-gradient-to-b from-[#e0b64c]/[0.07] to-transparent p-3 text-left transition-all hover:border-[#e0b64c]/50"
+            >
+              <div className="flex items-center justify-between">
+                <FighterAvatar fighter={f} size="md" />
+                <span className="num font-display text-lg font-bold text-[#e0b64c]">{overallRating(f)}</span>
+              </div>
+              <div className="mt-2 truncate font-display text-sm font-bold text-white group-hover:text-[#e0b64c]">{f.name}</div>
+              <div className="mt-0.5 flex items-center gap-1 text-[10px] text-zinc-500">
+                <Flag cc={f.cc} className="h-2.5 w-4" />
+                <RecordText fighter={f} />
+              </div>
             </motion.button>
           ))}
         </div>

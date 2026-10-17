@@ -185,7 +185,7 @@ function BetDialogInner({ spec, side, onClose }: { spec: BoutSpec; side: "A" | "
 
 // ---------- Simulation dialog ----------
 export function FightSimDialog() {
-  const { simSpec, setSimSpec } = useApp();
+  const { simSpec, setSimSpec, setBetSpec } = useApp();
   const bout = useBout(simSpec);
   const { bets, settleBet, bankroll } = useBetStore();
   const [phase, setPhase] = useState<"idle" | "running" | "done">("idle");

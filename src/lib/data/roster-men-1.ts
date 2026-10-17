@@ -79,7 +79,7 @@ export const HW = [
     ]),
   f("HW", 11, "Ante Delija", null, "HR", 27, 6, 0, 15, 5, 36, `6'4"`, `80"`, "American Top Team", "MMA", 1530,
     76, 82, 70, 74, 72, 76, 78, [
-      L("Brandon? Ivanov", "UFC Fight Night", "Jun 2026", "W", "KO", 2, "2:41", "Punches"),
+      L("Blagoy Ivanov", "UFC Fight Night", "Jun 2026", "W", "KO", 2, "2:41", "Punches"),
     ]),
   f("HW", 12, "Valter Walker", "Big Walker", "BR", 13, 3, 0, 5, 6, 31, `6'5"`, `79"`, "SBG Ireland", "Grappler", 1500,
     62, 58, 70, 90, 68, 72, 74, [
@@ -97,12 +97,13 @@ export const HW = [
       L("Magomed Ankalaev", "UFC 254", "Oct 24, 2020", "L", "SDEC", 3, "5:00"),
       L("Jiří Procházka", "UFC on ESPN", "Apr 29, 2023", "L", "KO", 2, "2:12", "Punches"),
       L("Carlos Ulberg", "UFC Fight Night", "May 3, 2025", "L", "KO", 1, "0:56", "Left Hook"),
-      L("Mario Pinto", "UFC Fight Night", "Aug 2, 2025", "W", "KO", 1, "1:26", "Right Hand"),
+      L("Mario Pinto", "UFC Fight Night", "Feb 21, 2026", "W", "KO", 1, "1:26", "Right Hand"),
     ]),
-  f("HW", 15, "Mario Pinto", null, "PT", 10, 1, 0, 6, 1, 30, `6'5"`, `81"`, "Lisboa MMA", "Striker", 1495,
+  f("HW", 15, "Mario Pinto", null, "PT", 9, 2, 0, 6, 1, 30, `6'5"`, `81"`, "Lisboa MMA", "Striker", 1495,
     80, 84, 55, 55, 65, 74, 78, [
+      L("Austen Lane", "UFC Fight Night", "Feb 2025", "W", "KO", 1, "4:14", "Straight Right"),
       L("Waldo Cortes-Acosta", "UFC Fight Night", "Aug 2, 2025", "L", "SDEC", 3, "5:00"),
-      L("Aleksandar Rakić", "UFC Fight Night", "Aug 2, 2025", "L", "KO", 1, "1:26", "Right Hand"),
+      L("Aleksandar Rakić", "UFC Fight Night", "Feb 21, 2026", "L", "KO", 1, "1:26", "Right Hand"),
     ]),
 ];
 

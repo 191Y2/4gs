@@ -19,11 +19,11 @@ export const EVENT_FIGHTERS = [
     ]),
   f("LW", 99, "Nate Landwehr", "The Train", "US", 18, 8, 0, 10, 4, 37, `5'9"`, `70"`, "Mies Martial Arts", "Brawler", 1490,
     78, 78, 42, 60, 48, 88, 90, [
-      L("Léo? Santos", "UFC Fight Night", "Mar 2025", "W", "KO", 1, "4:11", "Punches"),
+      L("Léo Santos", "UFC Fight Night", "Mar 2025", "W", "KO", 1, "4:11", "Punches"),
     ]),
   f("HW", 99, "Tanner Boser", "The Bulldozer", "CA", 22, 11, 1, 11, 4, 34, `6'2"`, `75"`, "Morrison MMA", "Boxer", 1485,
     78, 78, 45, 42, 52, 72, 82, [
-      L("Alejandro? Escamilla", "UFC Fight Night", "Jun 2025", "W", "KO", 2, "1:52", "Punches"),
+      L("Alejandro Escamilla", "UFC Fight Night", "Jun 2025", "W", "KO", 2, "1:52", "Punches"),
     ]),
   f("HW", 99, "Jhonata Diniz", "Mad Dog", "BR", 9, 2, 0, 7, 0, 29, `6'3"`, `78"`, "Fighting Nerds", "Kickboxer", 1540,
     84, 88, 40, 38, 52, 70, 72, [

@@ -24,7 +24,7 @@ export interface FightLogEntry {
   det?: string;        // e.g. "Head Kick", "Rear Naked Choke"
   r: number;           // round (0 = N/A)
   t?: string;          // time "2:09"
-  title?: " undisputed" | "interim" | "vacant";
+  title?: " undisputed" | "interim" | "vacant" | "T" | "I" | "V";
   bonus?: "POTN" | "FOTN";
 }
 
@@ -45,6 +45,8 @@ export interface Fighter {
   w: number; l: number; d: number; nc?: number;
   ko: number; sub: number; dec: number; // win method split
   elo: number;         // curated engine rating
+  status?: "active" | "retired"; // retired = legends & vets no longer fighting
+  legend?: boolean;    // Hall-of-Fame icon badge
   // 0-100 attributes drive the simulator
   str: number;   // striking technique & output
   pow: number;   // knockout power
@@ -81,7 +83,7 @@ export interface SimResult {
   detail?: string;
   round: number;
   time: string;
-  scorecards?: [number, number, number][]; // per judge [a, b]... simplified
+  scorecards?: [number, number][]; // per judge [a, b]
   rounds: SimRound[];
   sigStrikesA: number;
   sigStrikesB: number;

@@ -2,12 +2,12 @@
 
 import { useMemo, useState } from "react";
 import { motion } from "framer-motion";
-import { searchFighters, DIVISIONS, ROSTER } from "@/lib/data";
+import { searchFighters, DIVISIONS, ROSTER, LEGENDS } from "@/lib/data";
 import { DivisionId, Fighter } from "@/lib/types";
 import { overallRating, currentStreak } from "@/lib/engine";
 import { useApp } from "./AppContext";
 import { FighterAvatar, Flag, RecordText, RankBadge, WinMethodBar } from "./shared";
-import { Search, X, Crown, Star, Zap, TrendingUp } from "lucide-react";
+import { Search, X, Crown, Star, Zap, TrendingUp, Trophy } from "lucide-react";
 import { Input } from "@/components/ui/input";
 
 function FighterTile({ fighter, i }: { fighter: Fighter; i: number }) {
@@ -23,8 +23,19 @@ function FighterTile({ fighter, i }: { fighter: Fighter; i: number }) {
       <div className="flex items-start justify-between">
         <FighterAvatar fighter={fighter} size="md" />
         <div className="flex flex-col items-end gap-1">
-          <RankBadge fighter={fighter} />
-          {currentStreak(fighter) >= 3 && (
+          {fighter.legend ? (
+            <span className="inline-flex items-center gap-1 rounded border border-[#e0b64c]/60 bg-gradient-to-r from-[#e0b64c]/25 to-[#e0b64c]/10 px-1.5 py-0.5 text-[9px] font-display font-bold tracking-widest text-[#e0b64c]">
+              <Trophy className="h-2.5 w-2.5" /> HOF
+            </span>
+          ) : (
+            <RankBadge fighter={fighter} />
+          )}
+          {fighter.status === "retired" && (
+            <span className="rounded border border-white/15 bg-white/5 px-1.5 py-px text-[8px] font-display tracking-widest text-zinc-500">
+              RETIRED
+            </span>
+          )}
+          {fighter.status !== "retired" && currentStreak(fighter) >= 3 && (
             <span className="flex items-center gap-1 text-[9px] font-semibold text-emerald-400 num">
               <TrendingUp className="h-2.5 w-2.5" /> {currentStreak(fighter)} IN A ROW
             </span>
@@ -54,7 +65,7 @@ function FighterTile({ fighter, i }: { fighter: Fighter; i: number }) {
 export function RosterTab() {
   const [query, setQuery] = useState("");
   const [division, setDivision] = useState<DivisionId | "all">("all");
-  const [filter, setFilter] = useState<"all" | "ranked" | "champions">("all");
+  const [filter, setFilter] = useState<"all" | "ranked" | "champions" | "legends">("all");
   const [sort, setSort] = useState<"ovr" | "elo" | "name">("ovr");
 
   const list = useMemo(() => {
@@ -70,7 +81,7 @@ export function RosterTab() {
       <div>
         <h2 className="font-display text-2xl font-bold text-white">FIGHTER DATABASE</h2>
         <p className="mt-0.5 text-xs text-zinc-500">
-          {ROSTER.length} fighters · full bout histories · engine ratings · tap any fighter
+          {ROSTER.length} fighters · {LEGENDS.length} retired legends & Hall-of-Famers · full bout histories · tap any fighter
         </p>
       </div>
 
@@ -112,7 +123,7 @@ export function RosterTab() {
             </button>
           ))}
           <div className="ml-auto flex items-center gap-1">
-            {(["all", "ranked", "champions"] as const).map((f) => (
+            {(["all", "ranked", "champions", "legends"] as const).map((f) => (
               <button
                 key={f}
                 onClick={() => setFilter(f)}
@@ -122,6 +133,7 @@ export function RosterTab() {
               >
                 {f === "champions" && <Crown className="h-3 w-3" />}
                 {f === "ranked" && <Star className="h-3 w-3" />}
+                {f === "legends" && <Trophy className="h-3 w-3" />}
                 {f.toUpperCase()}
               </button>
             ))}

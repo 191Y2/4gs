@@ -12,6 +12,7 @@ import { Crown, ChevronDown } from "lucide-react";
 function DivisionSection({ divId, index }: { divId: DivisionId; index: number }) {
   const { openProfile } = useApp();
   const roster = divisionRoster(divId);
+  const legendCount = roster.filter((f) => f.status === "retired").length;
   const champ = roster.find((f) => f.isChampion);
   const div = DIVISIONS.find((d) => d.id === divId)!;
   const [open, setOpen] = useState(true);
@@ -35,7 +36,7 @@ function DivisionSection({ divId, index }: { divId: DivisionId; index: number })
             </div>
             <div>
               <h3 className="font-display text-base font-bold text-white">{div.name.toUpperCase()}</h3>
-              <p className="text-[10px] text-zinc-500">{roster.length} fighters on the roster · limit {div.limit} lb</p>
+              <p className="text-[10px] text-zinc-500">{roster.length} fighters{legendCount > 0 ? ` · ${legendCount} retired legends` : ""} · limit {div.limit} lb</p>
             </div>
           </div>
           <ChevronDown className={`h-4 w-4 text-zinc-500 transition-transform ${open ? "" : "-rotate-90"}`} />

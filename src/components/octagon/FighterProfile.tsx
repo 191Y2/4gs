@@ -7,7 +7,7 @@ import { getFighter, FIGHTER_MAP } from "@/lib/data";
 import { overallRating, currentStreak } from "@/lib/engine";
 import { useApp } from "./AppContext";
 import { FighterAvatar, Flag, DivisionChip, RankBadge, RecordText, WinMethodBar, AttributeBar, OvrBadge } from "./shared";
-import { Crown, MapPin, Users, Ruler, Trophy, Star, Swords, TrendingUp, X } from "lucide-react";
+import { Crown, MapPin, Users, Ruler, Trophy, Star, Swords, TrendingUp, X, Medal } from "lucide-react";
 
 function methodShort(m: FightLogEntry["m"]): string {
   switch (m) {
@@ -129,6 +129,16 @@ export function FighterProfileDialog() {
                 <div className="flex flex-wrap items-center gap-2">
                   <RankBadge fighter={fighter} />
                   <DivisionChip division={fighter.division} />
+                  {fighter.legend && (
+                    <span className="inline-flex items-center gap-1 rounded border border-[#e0b64c]/60 bg-gradient-to-r from-[#e0b64c]/25 to-[#e0b64c]/10 px-2 py-0.5 text-[10px] font-display font-bold tracking-widest text-[#e0b64c]">
+                      <Medal className="h-3 w-3" /> HALL OF FAME
+                    </span>
+                  )}
+                  {fighter.status === "retired" && !fighter.legend && (
+                    <span className="inline-flex items-center gap-1 rounded border border-white/15 bg-white/5 px-2 py-0.5 text-[10px] font-display tracking-widest text-zinc-400">
+                      RETIRED
+                    </span>
+                  )}
                 </div>
                 <h2 className="mt-1.5 font-display text-3xl font-bold leading-none text-white">
                   {fighter.name}
@@ -169,6 +179,9 @@ export function FighterProfileDialog() {
             <div className="rounded-xl border border-white/10 bg-gradient-to-b from-white/[0.05] to-transparent p-3">
               <div className="text-[9px] font-display tracking-[0.2em] text-zinc-500">ENGINE ELO</div>
               <div className="mt-1 font-display text-2xl font-bold text-zinc-100 num">{fighter.elo}</div>
+              {fighter.status === "retired" && (
+                <div className="text-[9px] text-zinc-600">prime-era rating</div>
+              )}
             </div>
             <div className="rounded-xl border border-white/10 bg-gradient-to-b from-white/[0.05] to-transparent p-3 sm:hidden">
               <div className="flex items-center justify-between">
@@ -232,8 +245,9 @@ export function FighterProfileDialog() {
               ))}
             </div>
             <p className="mt-3 text-[10px] leading-relaxed text-zinc-600">
-              Recent bouts shown from an approximate historical database — records, rankings and Oct 2026 champions
-              verified against official listings. Tap an opponent to open their file.
+              {fighter.status === "retired"
+                ? "Retired great — bout history reflects their real career; engine rating is prime-era. Fantasy-book them in the Fight Lab."
+                : "Recent bouts shown from an approximate historical database — records, rankings and Oct 2026 champions verified against official listings. Tap an opponent to open their file."}
             </p>
           </div>
         </div>
