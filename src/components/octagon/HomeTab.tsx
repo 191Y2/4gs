@@ -1,56 +1,60 @@
 "use client";
 
-import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
-import { champions, p4pList, RESULTS_TICKER, EVENTS, ROSTER, HOF_ICONS, LEGENDS, getFighter } from "@/lib/data";
-import { overallRating, fmtOdds } from "@/lib/engine";
+import { champions, p4pList, ROSTER, HOF_ICONS, LEGENDS, getFighter } from "@/lib/data";
+import { overallRating } from "@/lib/engine";
+import { Fighter } from "@/lib/types";
 import { useBetStore } from "@/lib/store";
+import {
+  currentSaturday,
+  currentWeekEvent,
+  eventBouts,
+  eventDisplayName,
+  isoOf,
+  prettyDate,
+  simP4P,
+  universeActive,
+  universeBouts,
+  useUniverseVersion,
+} from "@/lib/universe";
 import { useApp } from "./AppContext";
-import { useBeltsVersion } from "@/lib/belts";
 import { FighterAvatar, Flag, RecordText, OvrBadge, DivisionChip } from "./shared";
 import { Button } from "@/components/ui/button";
-import { Crown, Swords, CalendarDays, TrendingUp, DollarSign, ArrowRight, Zap, Flame, Trophy } from "lucide-react";
-
-// ---------- countdown ----------
-export function Countdown({ date, label }: { date: string; label: string }) {
-  const [now, setNow] = useState<number | null>(null);
-  useEffect(() => {
-    setNow(Date.now());
-    const t = setInterval(() => setNow(Date.now()), 1000);
-    return () => clearInterval(t);
-  }, []);
-  const target = new Date(`${date}T20:00:00`).getTime();
-  const diff = now == null ? null : target - now;
-  if (diff == null) {
-    return <div className="num font-display text-2xl font-bold text-zinc-700">— : — : —</div>;
-  }
-  const past = diff < 0;
-  const d = Math.floor(Math.abs(diff) / 86400000);
-  const h = Math.floor((Math.abs(diff) % 86400000) / 3600000);
-  const m = Math.floor((Math.abs(diff) % 3600000) / 60000);
-  return (
-    <div>
-      <div className="num font-display text-2xl font-bold text-white">
-        {d > 0 ? `${d}d ` : ""}{String(h).padStart(2, "0")}:{String(m).padStart(2, "0")}
-      </div>
-      <div className="text-[9px] font-display tracking-widest text-zinc-500 uppercase">
-        {past ? "TONIGHT — LIVE" : `UNTIL ${label}`}
-      </div>
-    </div>
-  );
-}
+import { Crown, CalendarDays, TrendingUp, DollarSign, Flame, Trophy, Radio, Eye, Check } from "lucide-react";
 
 // ---------- results ticker ----------
+// real pre-universe results until the first event runs, then the universe
+// takes over with its own latest outcomes
 function ResultsTicker() {
-  const items = [...RESULTS_TICKER, ...RESULTS_TICKER];
+  const active = universeActive();
+  const items = active
+    ? universeBouts().slice(-8).reverse().map((b) => {
+        const w = getFighter(b.winner === "A" ? b.aId : b.bId);
+        const l = getFighter(b.winner === "A" ? b.bId : b.aId);
+        const method = b.method === "KO" ? "KO'd" : b.method === "SUB" ? "sub'd" : "out-pointed";
+        return {
+          headline: w && l ? `${b.evName} · ${w.name} ${method} ${l.name}${b.method === "KO" || b.method === "SUB" ? ` — R${b.round} ${b.time}` : " — UD"}` : "",
+          detail: b.title ? "Title fight" : "",
+          date: b.date,
+        };
+      })
+    : [
+      { headline: "UFC 332 · Natalia Silva def. Wang Cong — UD (49-46, 48-47 x2)", detail: "New Women's Flyweight Champion crowned in Salt Lake City", date: "Oct 3" },
+      { headline: "UFC 332 · Payton Talbott KO'd Deiveson Figueiredo — R1 2:09", detail: "Talbott storms into the bantamweight rankings", date: "Oct 3" },
+      { headline: "UFC 332 · Esteban Ribovics KO'd King Green — R1 4:08", detail: "Statement win in the lightweight division", date: "Oct 3" },
+      { headline: "UFC FN · Brendan Allen sub'd Christian Leroy Duncan — R5 4:52", detail: "Late rear naked choke seals #1 contender push", date: "Oct 10" },
+      { headline: "UFC 331 · Ciryl Gane def. Alex Pereira — UD 49-46, 48-47 x2", detail: "Gane claims the undisputed heavyweight crown", date: "Sep 14" },
+      { headline: "UFC 331 · Joshua Van KO'd Tatsuro Taira — R2 1:38", detail: "Second title defense for the flyweight king", date: "Sep 12" },
+    ];
+  const loop = [...items, ...items];
   return (
     <div className="relative overflow-hidden border-y border-white/10 bg-black/40 py-2">
       <div className="ticker-track flex w-max items-center gap-8 whitespace-nowrap px-4">
-        {items.map((t, i) => (
+        {loop.map((t, i) => (
           <span key={i} className="flex items-center gap-2 text-[11px] text-zinc-400">
             <span className="font-display font-bold text-[#ff6b66] num">{t.date}</span>
             <span className="text-zinc-200">{t.headline}</span>
-            <span className="text-zinc-600">— {t.detail}</span>
+            {t.detail && <span className="text-zinc-600">— {t.detail}</span>}
           </span>
         ))}
       </div>
@@ -62,14 +66,24 @@ export function HomeTab() {
   const { openProfile, setSimSpec, setBetSpec } = useApp();
   const { bankroll } = useBetStore();
   const { mounted } = useApp();
-  useBeltsVersion(); // crowns re-render the moment a belt changes hands
+  useUniverseVersion(); // crowns, records & universe stats re-render live
   const CHAMPIONS = champions();
-  const menP4P = p4pList("men");
-  const womenP4P = p4pList("women");
-  const nextEvent = EVENTS[0];
+  const active = universeActive();
+  // universe P4P once events have run (champs + points leaders), real-world
+  // seeds before that — both normalize to plain fighter lists
+  const menP4P: Fighter[] = active
+    ? simP4P("men").map((e) => e.fighter)
+    : p4pList("men");
+  const womenP4P: Fighter[] = active
+    ? simP4P("women").map((e) => e.fighter)
+    : p4pList("women");
+  const week = currentSaturday();
+  const weekEvent = currentWeekEvent();
+  const weekName = weekEvent ? eventDisplayName(weekEvent) : null;
+  const mainBout = weekEvent ? eventBouts(weekEvent, "main")[0] : undefined;
+  const mainEventA = mainBout ? getFighter(mainBout.aId) : null;
+  const mainEventB = mainBout ? getFighter(mainBout.bId) : null;
   const hofIcons = [...HOF_ICONS].sort((a, b) => b.elo - a.elo).slice(0, 8);
-  const mainEventA = getFighter(nextEvent.bouts[0].aId);
-  const mainEventB = getFighter(nextEvent.bouts[0].bId);
 
   return (
     <div className="space-y-8 pb-8">
@@ -104,9 +118,14 @@ export function HomeTab() {
             </div>
             <div className="rounded-xl border border-white/10 bg-black/30 p-3">
               <div className="flex items-center gap-1.5 text-[9px] font-display tracking-[0.2em] text-zinc-500">
-                <CalendarDays className="h-3 w-3 text-[#e5322d]" /> NEXT EVENT
+                <CalendarDays className="h-3 w-3 text-[#e5322d]" /> THIS WEEK
               </div>
-              <div className="mt-1"><Countdown date={nextEvent.date} label="UFC ED" /></div>
+              <div className="mt-1">
+                <div className="num font-display text-2xl font-bold text-white">{prettyDate(isoOf(week))}</div>
+                <div className="text-[9px] font-display tracking-widest text-zinc-500 uppercase">
+                  {weekEvent ? (weekEvent.completed ? "EVENT COMPLETE" : "EVENT WEEK · SATURDAY") : "NO EVENT — CREATE ONE"}
+                </div>
+              </div>
             </div>
             <div className="rounded-xl border border-white/10 bg-black/30 p-3">
               <div className="text-[9px] font-display tracking-[0.2em] text-zinc-500">CHAMPIONS</div>
@@ -119,12 +138,14 @@ export function HomeTab() {
             </div>
           </div>
 
-          {/* next event main event */}
-          {mainEventA && mainEventB && (
+          {/* this week's universe main event */}
+          {mainEventA && mainEventB && mainBout && weekEvent && weekName && !mainBout.result && (
             <div className="mt-5 rounded-xl border border-white/10 bg-gradient-to-r from-black/50 via-black/20 to-black/50 p-4">
               <div className="flex items-center justify-between text-[10px] font-display tracking-[0.2em] text-zinc-500">
-                <span>TOMORROW NIGHT · {nextEvent.venue.toUpperCase()}</span>
-                <span className="text-[#ff6b66]">PARAMOUNT+</span>
+                <span className="flex items-center gap-1.5">
+                  <Radio className="h-3 w-3 text-[#e5322d]" /> THIS SATURDAY · {weekEvent.venue.toUpperCase()}
+                </span>
+                <span className="text-[#ff6b66]">{weekEvent.type === "numbered" ? "PPV MAIN" : "ESPN+"}</span>
               </div>
               <div className="mt-3 grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-3">
                 <button onClick={() => openProfile(mainEventA.id)} className="flex items-center gap-3 text-left group">
@@ -134,9 +155,7 @@ export function HomeTab() {
                     <div className="text-[11px] text-zinc-500"><RecordText fighter={mainEventA} /></div>
                   </div>
                 </button>
-                <span className="num font-display text-sm font-bold text-[#e0b64c]">
-                  {fmtOdds(nextEvent.bouts[0].oddsA ?? 0)} / {fmtOdds(nextEvent.bouts[0].oddsB ?? 0)}
-                </span>
+                <span className="num font-display text-sm font-bold text-[#e0b64c]">{weekName}</span>
                 <button onClick={() => openProfile(mainEventB.id)} className="flex flex-row-reverse items-center gap-3 text-right group">
                   <FighterAvatar fighter={mainEventB} size="md" />
                   <div>
@@ -145,30 +164,47 @@ export function HomeTab() {
                   </div>
                 </button>
               </div>
-              <div className="mt-3 flex gap-2">
+              <div className="mt-3 flex flex-wrap gap-2">
                 <Button
                   size="sm"
-                  onClick={() => setBetSpec({ spec: { aId: mainEventA.id, bId: mainEventB.id, label: nextEvent.name, eventId: nextEvent.id, rounds: 5, houseA: nextEvent.bouts[0].oddsA, houseB: nextEvent.bouts[0].oddsB }, side: "A" })}
+                  onClick={() => setSimSpec({ aId: mainEventA.id, bId: mainEventB.id, label: weekName, rounds: mainBout.rounds, source: { eventId: weekEvent.id, boutId: mainBout.id } })}
                   className="red-grad font-display font-bold tracking-wider text-white"
+                >
+                  <Eye className="mr-1 h-3.5 w-3.5" /> WATCH MAIN EVENT
+                </Button>
+                <Button
+                  size="sm"
+                  onClick={() => setBetSpec({ spec: { aId: mainEventA.id, bId: mainEventB.id, label: weekName, rounds: mainBout.rounds }, side: "A" })}
+                  className="border-[#e0b64c]/40 bg-[#e0b64c]/10 font-display font-bold tracking-wider text-[#e0b64c] hover:bg-[#e0b64c]/20"
+                  variant="outline"
                 >
                   <DollarSign className="mr-1 h-3.5 w-3.5" /> BET {mainEventA.name.split(" ").slice(-1)}
                 </Button>
                 <Button
                   size="sm"
-                  onClick={() => setBetSpec({ spec: { aId: mainEventA.id, bId: mainEventB.id, label: nextEvent.name, eventId: nextEvent.id, rounds: 5, houseA: nextEvent.bouts[0].oddsA, houseB: nextEvent.bouts[0].oddsB }, side: "B" })}
-                  className="red-grad font-display font-bold tracking-wider text-white"
+                  onClick={() => setBetSpec({ spec: { aId: mainEventA.id, bId: mainEventB.id, label: weekName, rounds: mainBout.rounds }, side: "B" })}
+                  className="border-[#e0b64c]/40 bg-[#e0b64c]/10 font-display font-bold tracking-wider text-[#e0b64c] hover:bg-[#e0b64c]/20"
+                  variant="outline"
                 >
                   <DollarSign className="mr-1 h-3.5 w-3.5" /> BET {mainEventB.name.split(" ").slice(-1)}
                 </Button>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={() => setSimSpec({ aId: mainEventA.id, bId: mainEventB.id, label: nextEvent.name, eventId: nextEvent.id, rounds: 5, houseA: nextEvent.bouts[0].oddsA, houseB: nextEvent.bouts[0].oddsB })}
-                  className="border-white/15 bg-white/5 font-display font-bold tracking-wider text-zinc-200 hover:bg-white/10"
-                >
-                  <Zap className="mr-1 h-3.5 w-3.5 text-[#e0b64c]" /> QUICK SIM
-                </Button>
               </div>
+            </div>
+          )}
+          {weekEvent && weekEvent.completed && (
+            <div className="mt-5 flex items-center justify-between rounded-xl border border-emerald-500/30 bg-emerald-500/5 px-4 py-3">
+              <span className="text-xs text-zinc-300">
+                <Check className="mr-1.5 inline h-3.5 w-3.5 text-emerald-400" />
+                <span className="font-display font-bold tracking-wider text-white">{weekName}</span> is in the books — records, rankings & titles updated.
+              </span>
+            </div>
+          )}
+          {!weekEvent && (
+            <div className="mt-5 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-dashed border-white/15 bg-white/[0.02] px-4 py-3">
+              <span className="text-xs text-zinc-400">
+                <CalendarDays className="mr-1.5 inline h-3.5 w-3.5 text-[#e5322d]" />
+                Fight week of <span className="font-semibold text-zinc-200">{prettyDate(isoOf(week))}</span> — Saturday night is dark. Create an event on the EVENTS tab.
+              </span>
             </div>
           )}
         </div>

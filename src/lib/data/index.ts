@@ -1,68 +1,21 @@
-import { Fighter, DivisionId, FightEvent } from "../types";
-import { HW, LHW, MW, MW_EXTRA } from "./roster-men-1";
-import { WW, LW } from "./roster-men-2";
-import { FW, BW, FLW } from "./roster-men-3";
-import { WSW, WFLW, WBW, WOMEN_EXTRA } from "./roster-women";
-import { EVENTS, EVENT_FIGHTERS } from "./events";
+import { Fighter, DivisionId } from "../types";
 import { DIVISIONS, DIVISION_MAP } from "./core";
-import { HW_LEGENDS, LHW_LEGENDS, MW_LEGENDS } from "./roster-legends";
-import { WW_LEGENDS, LW_LEGENDS, FW_LEGENDS, BW_LEGENDS, FLW_LEGENDS } from "./roster-legends-2";
-import { WBW_LEGENDS, WFLW_LEGENDS, WSW_LEGENDS } from "./roster-legends-w";
-import { HW_DEPTH, LHW_DEPTH, MW_DEPTH } from "./roster-depth-1";
-import { WW_DEPTH, LW_DEPTH } from "./roster-depth-2";
-import { FW_DEPTH, BW_DEPTH, FLW_DEPTH } from "./roster-depth-3";
-import { WBW_DEPTH, WFLW_DEPTH, WSW_DEPTH } from "./roster-depth-w";
-import { JONES, JONES_PEERS } from "./roster-jones";
-import { FILL_LEGENDS, FILL_MEN, FILL_WOMEN } from "./roster-fill";
-import { auto, slug, fillCareer } from "./depth";
-import {
-  AUTO_HW, AUTO_LHW, AUTO_MW, AUTO_WW, AUTO_LW, AUTO_FW,
-  AUTO_BW, AUTO_FLW, AUTO_WBW, AUTO_WFLW, AUTO_WSW,
-} from "./roster-auto";
+import { auto, slug } from "./depth";
+import prebuilt from "./roster.prebuilt.json";
 
 export { DIVISIONS, DIVISION_MAP } from "./core";
-export { EVENTS } from "./events";
 
-const RAW_ROSTER: Fighter[] = [
-  ...HW, ...LHW, ...MW, ...MW_EXTRA,
-  ...WW, ...LW,
-  ...FW, ...BW, ...FLW,
-  ...WSW, ...WFLW, ...WBW, ...WOMEN_EXTRA,
-  ...EVENT_FIGHTERS,
-  // legends (Hall of Fame & retired greats — prime-era ratings)
-  ...HW_LEGENDS, ...LHW_LEGENDS, ...MW_LEGENDS, ...WW_LEGENDS,
-  ...LW_LEGENDS, ...FW_LEGENDS, ...BW_LEGENDS, ...FLW_LEGENDS,
-  ...WBW_LEGENDS, ...WFLW_LEGENDS, ...WSW_LEGENDS,
-  // depth roster (actives, journeymen & prospects)
-  ...HW_DEPTH, ...LHW_DEPTH, ...MW_DEPTH,
-  ...WW_DEPTH, ...LW_DEPTH,
-  ...FW_DEPTH, ...BW_DEPTH, ...FLW_DEPTH,
-  ...WBW_DEPTH, ...WFLW_DEPTH, ...WSW_DEPTH,
-  // Jon Bones Jones — complete UFC record — plus his opponents on file
-  ...JONES_PEERS, JONES,
-  // fill roster — every name referenced across all records becomes a fighter
-  ...FILL_LEGENDS, ...FILL_MEN, ...FILL_WOMEN,
-  // deep auto roster — every pool name is a fighter with a full career
-  ...AUTO_HW, ...AUTO_LHW, ...AUTO_MW, ...AUTO_WW, ...AUTO_LW,
-  ...AUTO_FW, ...AUTO_BW, ...AUTO_FLW, ...AUTO_WBW, ...AUTO_WFLW, ...AUTO_WSW,
-];
+// ============ ROSTER ============
+// The full 670-fighter database (champions, rankings, complete UFC-only
+// careers, legends, every opponent referenced in any record) is PREBUILT at
+// dump time — see /api/roster-dump. Loading the JSON directly means zero
+// runtime career generation, which is what makes the app load instantly.
 
-// Deduplicate by id (first occurrence wins) so cross-file name clashes can't break the map
-export const ROSTER: Fighter[] = Object.values(
-  RAW_ROSTER.reduce<Record<string, Fighter>>((acc, f) => {
-    if (!acc[f.id]) acc[f.id] = f;
-    return acc;
-  }, {})
-);
+export const ROSTER: Fighter[] = (prebuilt as { fighters: Fighter[] }).fighters;
 
 export const FIGHTER_MAP: Record<string, Fighter> = Object.fromEntries(
   ROSTER.map((f) => [f.id, f])
 );
-
-// ---------- Complete records for everyone ----------
-// Hand-written files log only recent/key bouts — backfill the early career
-// so every fighter carries their FULL W-L record bout-by-bout.
-for (const f of ROSTER) fillCareer(f);
 
 // ---------- Alias resolution ----------
 // Names that appear in records under a different spelling than the database.
@@ -98,17 +51,6 @@ export function ensureFighter(name: string, division?: DivisionId): Fighter | un
   ROSTER.push(ghost);
   FIGHTER_MAP[ghost.id] = ghost;
   return ghost;
-}
-
-// Eager pass — sweep every bout history once at load and register any
-// straggler opponents up front, so the database is fully closed on day one.
-for (const f of ROSTER) {
-  for (const e of f.log) {
-    const id = slug(e.op);
-    if (!FIGHTER_MAP[id] && !FIGHTER_MAP[ALIASES[id] ?? ""]) {
-      ensureFighter(e.op, f.division);
-    }
-  }
 }
 
 export function divisionRoster(div: DivisionId): Fighter[] {
@@ -164,21 +106,3 @@ export function searchFighters(
   }
   return list;
 }
-
-// Latest completed results ticker (Oct 2026)
-export interface TickerItem {
-  headline: string;
-  detail: string;
-  date: string;
-}
-
-export const RESULTS_TICKER: TickerItem[] = [
-  { headline: "UFC 332 · Natalia Silva def. Wang Cong — UD (49-46, 48-47 x2)", detail: "New Women's Flyweight Champion crowned in Salt Lake City", date: "Oct 3" },
-  { headline: "UFC 332 · Payton Talbott KO'd Deiveson Figueiredo — R1 2:09", detail: "Talbott storms into the bantamweight rankings", date: "Oct 3" },
-  { headline: "UFC 332 · Esteban Ribovics KO'd King Green — R1 4:08", detail: "Statement win in the lightweight division", date: "Oct 3" },
-  { headline: "UFC FN · Brendan Allen sub'd Christian Leroy Duncan — R5 4:52", detail: "Late rear naked choke seals #1 contender push", date: "Oct 10" },
-  { headline: "UFC 331 · Ciryl Gane def. Alex Pereira — UD 49-46, 48-47 x2", detail: "Gane claims the undisputed heavyweight crown", date: "Sep 14" },
-  { headline: "UFC 331 · Joshua Van KO'd Tatsuro Taira — R2 1:38", detail: "Second title defense for the flyweight king", date: "Sep 12" },
-];
-
-export const EVENTS_LIST: FightEvent[] = EVENTS;

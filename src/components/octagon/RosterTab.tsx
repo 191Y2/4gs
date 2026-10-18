@@ -5,6 +5,7 @@ import { motion } from "framer-motion";
 import { searchFighters, DIVISIONS, ROSTER, LEGENDS } from "@/lib/data";
 import { DivisionId, Fighter } from "@/lib/types";
 import { overallRating, currentStreak } from "@/lib/engine";
+import { simRecord, useUniverseVersion } from "@/lib/universe";
 import { useApp } from "./AppContext";
 import { useBeltsVersion } from "@/lib/belts";
 import { FighterAvatar, Flag, RecordText, RankBadge, WinMethodBar } from "./shared";
@@ -49,6 +50,9 @@ function FighterTile({ fighter, i }: { fighter: Fighter; i: number }) {
       <div className="mt-1 flex items-center gap-1.5 text-[11px] text-zinc-500">
         <Flag cc={fighter.cc} className="h-2.5 w-4" />
         <RecordText fighter={fighter} className="text-zinc-400" />
+        <span className="rounded border border-[#e0b64c]/30 bg-[#e0b64c]/[0.08] px-1 py-px text-[9px] font-bold text-[#e0b64c]/90 num">
+          {simRecord(fighter).w}-{simRecord(fighter).l}-{simRecord(fighter).d} HQ
+        </span>
         <span className="text-zinc-700">·</span>
         <span className="truncate">{fighter.style}</span>
       </div>
@@ -65,6 +69,7 @@ function FighterTile({ fighter, i }: { fighter: Fighter; i: number }) {
 
 export function RosterTab() {
   useBeltsVersion(); // crowns & champion filters stay live when belts move
+  useUniverseVersion(); // HQ records on tiles stay live when events settle
   const [query, setQuery] = useState("");
   const [division, setDivision] = useState<DivisionId | "all">("all");
   const [filter, setFilter] = useState<"all" | "ranked" | "champions" | "legends">("all");

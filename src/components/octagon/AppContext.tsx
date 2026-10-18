@@ -2,7 +2,7 @@
 
 import { createContext, useContext, useEffect, useState } from "react";
 import { useBetStore } from "@/lib/store";
-import { rehydrateCareers } from "@/lib/careers";
+import { rehydrateUniverse } from "@/lib/universe";
 
 export interface BoutSpec {
   aId: string;
@@ -13,6 +13,9 @@ export interface BoutSpec {
   houseB?: number;
   eventId?: string;
   title?: string;   // "UFC Featherweight Title" — mark title bouts
+  // when set, this sim is a UNIVERSE EVENT bout — the result is written onto
+  // both fighters' records. Fight Lab sims never set this (pure sandbox).
+  source?: { eventId: string; boutId: string };
 }
 
 interface AppContextValue {
@@ -41,9 +44,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [betSpec, setBetSpec] = useState<{ spec: BoutSpec; side: "A" | "B" } | null>(null);
 
   useEffect(() => {
-    // simulated-fight careers replay onto the roster first (synchronous),
-    // then the betting wallet rehydrates
-    rehydrateCareers();
+    // the universe (user-created events + their results) replays onto the
+    // roster first (synchronous), then the betting wallet rehydrates
+    rehydrateUniverse();
     void Promise.resolve(useBetStore.persist.rehydrate()).then(() => {
       // nobody stays broke — if a stale session left the wallet empty,
       // the emergency sponsorship kicks in on load

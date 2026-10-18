@@ -159,6 +159,127 @@ function scorecards(pA: number): [number, number][] {
   });
 }
 
+// ---------- Play-by-play attack vocabulary ----------
+// Every beat is one moment of the fight — strikes, clinch work, wrestling
+// exchanges, ground battles — chosen from the fighters' styles so a boxer
+// boxes and a sambo artist chains takedowns.
+const ATTACKS = {
+  strikes: [
+    "stiff jab", "snapping cross", "right hook", "left hook", "short uppercut",
+    "overhand right", "left straight down the pipe", "check hook off the back foot",
+    "digging body hook", "left hook to the liver", "low calf kick", "heavy leg kick",
+    "switch kick to the body", "high head kick", "question-mark kick", "thudding teep",
+    "oblique kick", "spinning back kick to the belly", "jumping switch kick",
+    "flying knee", "stepping knee up the middle", "superman punch", "spinning back fist",
+    "back elbow", "crisp one-two", "counter right hand", "lead hook off the jab",
+  ],
+  clinch: [
+    "double-collar tie", "single collar against the fence", "dirty boxing in the phone booth",
+    "knees from the clinch", "short elbows in close", "body lock against the cage",
+    "foot stomp and shoulder pressure", "level-change feint off the cage",
+  ],
+  ground: [
+    "deep double-leg", "single-leg to a trip", "body-lock slam", "outside trip from the clinch",
+    "counter hip toss", "chain-wrestling scramble", "pass to half guard",
+    "stack pass to side control", "knee slice to mount", "back take with both hooks in",
+    "heavy half-guard pressure", "elbows from the top", "hammerfists with posture",
+    "heel-hook grip fight", "kimura grip from half guard", "armbar off the back",
+    "triangle attempt from guard", "upkick from the bottom", "wall-walk back to the feet",
+    "mad scramble and reset", "front-headlock battle", "guillotine grip off the shot",
+  ],
+  defends: [
+    "sprawls on a desperate shot", "whizzers and circles free", "slips the combination",
+    "parries the jab and resets", "backs out of the pocket untouched",
+    "shells up and absorbs it on the arms", "steps off-line and counters",
+  ],
+};
+
+function pick<T>(arr: T[]): T {
+  return arr[Math.floor(Math.random() * arr.length)];
+}
+
+function lastName(f: Fighter): string {
+  return f.name.split(" ").filter(Boolean).slice(-1)[0] ?? f.name;
+}
+
+// one play-by-play beat — actor usually the round's dominant fighter
+function narrateBeat(actor: Fighter, target: Fighter): string {
+  const r = Math.random();
+  const wrestler = actor.wr > 72;
+  const grappler = actor.gr > 72;
+  const striker = actor.str > 72 || actor.pow > 80;
+  const roll = Math.random();
+  if (r < (wrestler ? 0.38 : grappler ? 0.3 : 0.14)) {
+    // wrestling / ground exchange
+    if (roll < 0.72) return `${lastName(actor)} changes levels and hits a ${pick(ATTACKS.ground)} — ${lastName(target)} is forced to defend.`;
+    return `${lastName(target)} reaches for a ${pick(ATTACKS.ground)}, but ${lastName(actor)} ${pick(ATTACKS.defends)}.`;
+  }
+  if (r < (wrestler ? 0.48 : grappler ? 0.42 : 0.22)) {
+    // clinch battle
+    return `${lastName(actor)} closes distance into a ${pick(ATTACKS.clinch)} and digs short shots on ${lastName(target)}.`;
+  }
+  // striking exchange — power punchers rock their man more often
+  if (striker && roll < 0.22) {
+    return `${lastName(actor)} connects CLEAN with a ${pick(ATTACKS.strikes)} — ${lastName(target)} is wobbled and backs toward the fence!`;
+  }
+  const templates = [
+    `${lastName(actor)} lands a ${pick(ATTACKS.strikes)} — ${lastName(target)} eats it and resets.`,
+    `${lastName(actor)} rips a ${pick(ATTACKS.strikes)} that snaps ${lastName(target)}'s head back.`,
+    `${lastName(target)} fires a ${pick(ATTACKS.strikes)} of his own, but ${lastName(actor)} ${pick(ATTACKS.defends)}.`,
+    `${lastName(actor)} pumps the jab and buries a ${pick(ATTACKS.strikes)} behind it.`,
+    `Trading in the pocket — ${lastName(actor)} gets the better of it with a ${pick(ATTACKS.strikes)}.`,
+    `${lastName(actor)} switches stances and tags ${lastName(target)} with a ${pick(ATTACKS.strikes)}.`,
+  ];
+  return pick(templates);
+}
+
+// a full round of beats: 5-8 moments, winner trending ahead, finish rounds
+// build to the stoppage across the last beats
+function buildRoundBeats(
+  r: number,
+  totalRounds: number,
+  win: Fighter,
+  lose: Fighter,
+  edge: number,
+  method: WinMethod,
+  det?: string
+): string[] {
+  const count = 5 + Math.floor(Math.random() * 3) + (totalRounds === 5 ? 1 : 0);
+  const beats: string[] = [];
+  const isFinishRound = r === totalRounds && (method === "KO" || method === "SUB");
+  const isFinalRound = r === totalRounds && method !== "KO" && method !== "SUB";
+
+  if (r === 1) {
+    beats.push(
+      `Here we go — ${lastName(win)} and ${lastName(lose)} meet in the center, and the range is established early.`
+    );
+  }
+  if (isFinalRound) {
+    beats.push(`Championship rounds in the books — the final frame is underway, and both corners want this one.`);
+  }
+
+  const bodyCount = isFinishRound ? Math.max(2, count - 3) : count - (r === 1 ? 1 : 0);
+  for (let i = 0; i < bodyCount; i++) {
+    const actor = Math.random() < 0.55 + edge * 0.3 ? win : lose;
+    const target = actor === win ? lose : win;
+    beats.push(narrateBeat(actor, target));
+  }
+
+  if (isFinishRound) {
+    if (method === "KO") {
+      beats.push(`${lastName(win)} lands a ${det?.toLowerCase() ?? "clean shot"} — ${lastName(lose)} is HURT and drops to the canvas!`);
+      beats.push(`${lastName(win)} swarms with ground strikes — the referee dives in and WAVES IT OFF!`);
+    } else if (method === "SUB") {
+      beats.push(`${lastName(win)} attacks with a ${det?.toLowerCase() ?? "submission"} — it's locked in TIGHT and ${lastName(lose)} is in deep trouble!`);
+      beats.push(`${lastName(lose)} fights the hands... but he TAPS! The referee steps in and separates them!`);
+    }
+  }
+  if (isFinalRound) {
+    beats.push(`The horn sounds — both men raise their arms. This one is going to the judges' scorecards.`);
+  }
+  return beats;
+}
+
 export function simulateFight(a: Fighter, b: Fighter, rounds: 3 | 5 = 3, pAOverride?: number): SimResult {
   const odds = computeOdds(a, b);
   const pA = pAOverride ?? odds.pA;
@@ -172,15 +293,7 @@ export function simulateFight(a: Fighter, b: Fighter, rounds: 3 | 5 = 3, pAOverr
   const { method, det } = sampleMethod(win, lose);
   const totalRounds = method === "KO" || method === "SUB" ? pickFinishRound(win, lose, method) : rounds;
 
-  // 3) build round-by-round narration
-  const roundTexts = [
-    "feels out the range, trading kicks at distance",
-    "opens up in combination, both men land hard",
-    "turns into a war — the crowd is on its feet",
-    "paces himself, picking shots and mixing levels",
-    "empties the tank — everything he has left",
-  ];
-
+  // 3) build round-by-round play-by-play
   const roundsLog: SimRound[] = [];
   let sigA = 0;
   let sigB = 0;
@@ -195,29 +308,11 @@ export function simulateFight(a: Fighter, b: Fighter, rounds: 3 | 5 = 3, pAOverr
     sigA += aLands;
     sigB += bLands;
 
-    const narrA = a.name.split(" ").slice(-1)[0];
-    const narrB = b.name.split(" ").slice(-1)[0];
-
-    let text: string;
-    if (r === totalRounds && (method === "KO" || method === "SUB")) {
-      text =
-        method === "KO"
-          ? `${narrA} catches ${narrB} with a ${det?.toLowerCase() ?? "clean shot"} and ${narrB} goes down — the referee waves it off!`
-          : `${narrA} sinks in a ${det?.toLowerCase() ?? "submission"} on ${narrB} and forces the tap!`;
-    } else {
-      const flavor = roundTexts[Math.min(r - 1, 4)];
-      const grappleNote =
-        win.wr > 78 && Math.random() < 0.45
-          ? `${narrA} lands a takedown and works control time.`
-          : win.str > 78 && Math.random() < 0.4
-            ? `${narrA} is out-landing ${narrB} on the feet.`
-            : "";
-      text = `${narrA} and ${narrB} ${flavor}. ${grappleNote}`.trim();
-    }
-
+    const beats = buildRoundBeats(r, totalRounds, win, lose, edge, method, det);
     roundsLog.push({
       round: r,
-      text,
+      text: beats[0] ?? "",
+      beats,
       aLanded: aLands,
       bLanded: bLands,
       finish: r === totalRounds && (method === "KO" || method === "SUB") ? det : undefined,

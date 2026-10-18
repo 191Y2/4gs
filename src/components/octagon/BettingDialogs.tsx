@@ -4,15 +4,14 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { toast } from "sonner";
 import { getFighter } from "@/lib/data";
-import { computeOdds, decimalFromAmerican, fmtOdds, simulateFight, SimResult, resultSummary, probFromAmerican } from "@/lib/engine";
-import { maybeTransferBelt } from "@/lib/belts";
-import { recordSimResult } from "@/lib/careers";
+import { computeOdds, decimalFromAmerican, fmtOdds, simulateFight, SimResult, resultSummary, probFromAmerican, SimRound } from "@/lib/engine";
+import { recordEventBout } from "@/lib/universe";
 import { useBetStore, BAILOUT_AMOUNT } from "@/lib/store";
 import { BoutSpec, useApp } from "./AppContext";
 import { FighterAvatar, Flag, OddsChip, RecordText } from "./shared";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Zap, DollarSign, Trophy, Calculator, Play, RotateCcw, Check, X, HandCoins } from "lucide-react";
+import { Zap, DollarSign, Trophy, Calculator, Play, RotateCcw, Check, X, HandCoins, FastForward, SkipForward, Radio } from "lucide-react";
 
 // ---------- odds helpers ----------
 export function useBout(spec: BoutSpec | null) {
@@ -210,6 +209,23 @@ function BetDialogInner({ spec, side, onClose }: { spec: BoutSpec; side: "A" | "
   );
 }
 
+
+// ---------- Play-by-play timeline ----------
+interface TimelineBeat {
+  round: number;
+  text: string;
+  r: SimRound;
+}
+
+function flattenBeats(sim: SimResult): TimelineBeat[] {
+  const out: TimelineBeat[] = [];
+  for (const r of sim.rounds) {
+    const beats = r.beats?.length ? r.beats : [r.text];
+    for (const b of beats) out.push({ round: r.round, text: b, r });
+  }
+  return out;
+}
+
 // ---------- Simulation dialog ----------
 export function FightSimDialog() {
   const { simSpec, setSimSpec, setBetSpec } = useApp();
@@ -217,10 +233,14 @@ export function FightSimDialog() {
   const { bets, settleBet, bankroll } = useBetStore();
   const [phase, setPhase] = useState<"idle" | "running" | "done">("idle");
   const [sim, setSim] = useState<SimResult | null>(null);
-  const [revealed, setRevealed] = useState(0);
+  const [revealed, setRevealed] = useState(0); // play-by-play beats revealed
   const [runId, setRunId] = useState(0);
+  const [speed, setSpeed] = useState<1 | 2>(1); // beats per reveal delay multiplier
   const settledRunRef = useRef<number>(-1);
   const timers = useRef<ReturnType<typeof setTimeout>[]>([]);
+
+  const isEventBout = !!simSpec?.source;
+  const timeline = useMemo(() => (sim ? flattenBeats(sim) : []), [sim]);
 
   const activeBets = useMemo(() => {
     if (!simSpec) return [];
@@ -244,21 +264,32 @@ export function FightSimDialog() {
     };
   }, [simSpec]);
 
-  // settle matching bets + move the belt once per simulated run — RUNNING IT
-  // BACK is a brand new fight, so it settles fresh every time (bets already
-  // settled drop out of activeBets automatically)
+  const clearTimers = () => {
+    timers.current.forEach(clearTimeout);
+    timers.current = [];
+  };
+
+  // the official result is in — settle bets exactly once per run and, for a
+  // UNIVERSE EVENT bout, write the fight onto both career records (records,
+  // belt and rankings all update). Fight Lab bookings are exhibitions: the
+  // wallet settles, nothing else changes.
   useEffect(() => {
     if (phase !== "done" || !sim || !simSpec || !bout) return;
     if (settledRunRef.current === runId) return;
     settledRunRef.current = runId;
 
-    // the official result is in — straight onto both career records it goes
-    const career = recordSimResult(bout.a, bout.b, sim, simSpec);
-    if (career) {
-      if (career.drew) {
-        toast.info(`Majority draw — ${bout.a.name} vs ${bout.b.name} goes down as a D on both records`);
-      } else {
-        toast.success(`${career.winnerName} def. ${career.loserName} — written to both career records`);
+    let recorded = false;
+    if (simSpec.source) {
+      const outcome = recordEventBout(simSpec.source.eventId, simSpec.source.boutId, sim);
+      if (outcome) {
+        recorded = true;
+        toast.success(`${outcome.note}`, { duration: 5000 });
+        if (outcome.belt) {
+          toast.success(
+            `NEW CHAMPION! ${outcome.belt.newChamp.name} dethrones ${outcome.belt.oldChamp.name} — the ${outcome.belt.divName} belt changes hands!`,
+            { duration: 7000 }
+          );
+        }
       }
     }
 
@@ -270,21 +301,13 @@ export function FightSimDialog() {
     for (const bet of activeBets) {
       const isWin = bet.bettorFighterId === winnerId;
       const payout = bet.stake * (bet.decOdds - 1);
-      settleBet(bet.id, isWin, isWin ? note : note, payout);
+      settleBet(bet.id, isWin, note, payout);
       if (isWin) {
         won++;
         profit += payout;
       } else {
         lost++;
       }
-    }
-    // DYNAMIC CHAMPIONSHIPS — the champ can lose the belt right here
-    const belt = maybeTransferBelt(bout.a, bout.b, sim.winner);
-    if (belt) {
-      toast.success(
-        `NEW CHAMPION! ${belt.newChamp.name} dethrones ${belt.oldChamp.name} — the ${belt.divName} belt changes hands!`,
-        { duration: 7000 }
-      );
     }
     if (won + lost > 0) {
       if (won > 0) {
@@ -298,22 +321,33 @@ export function FightSimDialog() {
   const runSim = () => {
     if (!bout || !simSpec) return;
     const result = simulateFight(bout.a, bout.b, simSpec.rounds, simSpec.houseA != null ? bout.pA : undefined);
+    const tl = flattenBeats(result);
     setSim(result);
-    setPhase("running");
     setRevealed(0);
     setRunId((r) => r + 1);
-    timers.current.forEach(clearTimeout);
-    timers.current = [];
-    result.rounds.forEach((_, i) => {
+    clearTimers();
+    if (tl.length === 0) {
+      setPhase("done");
+      return;
+    }
+    setPhase("running");
+    const step = speed === 1 ? 2600 : 1300; // ~15-30s of play-by-play per round at 1x
+    tl.forEach((_, i) => {
       timers.current.push(
         setTimeout(() => {
           setRevealed(i + 1);
-          if (i + 1 === result.rounds.length) {
-            timers.current.push(setTimeout(() => setPhase("done"), 700));
+          if (i + 1 === tl.length) {
+            timers.current.push(setTimeout(() => setPhase("done"), 900));
           }
-        }, 800 * (i + 1))
+        }, step * (i + 1))
       );
     });
+  };
+
+  const skipToEnd = () => {
+    clearTimers();
+    if (sim) setRevealed(timeline.length);
+    setPhase("done");
   };
 
   if (!bout || !simSpec) {
@@ -324,6 +358,15 @@ export function FightSimDialog() {
   const winner = sim?.winner === "A" ? a : sim?.winner === "B" ? b : null;
   const loser = sim?.winner === "A" ? b : sim?.winner === "B" ? a : null;
 
+  // rounds with at least one revealed beat, in order
+  const shownRounds = sim
+    ? sim.rounds.filter((r) => {
+        const beats = r.beats?.length ? r.beats : [r.text];
+        const before = sim.rounds.slice(0, sim.rounds.indexOf(r)).reduce((s, x) => s + (x.beats?.length ?? 1), 0);
+        return revealed > before && beats.length > 0;
+      })
+    : [];
+
   return (
     <Dialog open={true} onOpenChange={(v) => !v && setSimSpec(null)}>
       <DialogContent aria-describedby={undefined} className="max-w-2xl max-h-[92vh] overflow-y-auto thin-scroll rounded-2xl border-white/10 bg-[#101216] p-0 gap-0">
@@ -331,39 +374,63 @@ export function FightSimDialog() {
         <div className="h-1 red-grad rounded-t-2xl" />
         <div className="px-5 py-4 sm:px-6">
           <div className="flex items-center justify-between">
-            <div className="text-[10px] font-display tracking-[0.2em] text-zinc-500 uppercase">
-              FIGHT SIMULATION · {simSpec.label.toUpperCase()}
+            <div className="flex items-center gap-2 text-[10px] font-display tracking-[0.2em] text-zinc-500 uppercase">
+              {isEventBout ? (
+                <>
+                  <Radio className="h-3.5 w-3.5 text-[#e5322d]" /> LIVE · {simSpec.label.toUpperCase()}
+                </>
+              ) : (
+                <>
+                  <span className="h-1.5 w-1.5 rounded-full bg-[#e5322d] live-dot" /> EXHIBITION · FIGHT LAB
+                </>
+              )}
             </div>
             <div className="flex items-center gap-1.5">
-              <span className="h-1.5 w-1.5 rounded-full bg-[#e5322d] live-dot" />
+              {phase === "running" && (
+                <button
+                  onClick={() => setSpeed((s) => (s === 1 ? 2 : 1))}
+                  className="flex items-center gap-1 rounded border border-white/15 bg-white/5 px-2 py-0.5 text-[10px] font-display font-bold tracking-widest text-zinc-300 transition-colors hover:text-white"
+                  title="Toggle play-by-play speed"
+                >
+                  <FastForward className="h-3 w-3" /> {speed === 1 ? "1×" : "2×"}
+                </button>
+              )}
+              {phase === "running" && (
+                <button
+                  onClick={skipToEnd}
+                  className="flex items-center gap-1 rounded border border-[#e5322d]/40 bg-[#e5322d]/10 px-2 py-0.5 text-[10px] font-display font-bold tracking-widest text-[#ff6b66] transition-colors hover:bg-[#e5322d]/20"
+                >
+                  <SkipForward className="h-3 w-3" /> SKIP
+                </button>
+              )}
               <span className="text-[10px] font-display tracking-widest text-zinc-500">{simSpec.rounds} RDS</span>
             </div>
           </div>
 
           {/* Tale of tape header */}
           <div className="mt-3 grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-2 sm:gap-4">
-            <button onClick={() => setSimSpec(null)} className="group flex items-center gap-3 text-left" title="View profile">
+            <div className="group flex items-center gap-3 text-left">
               <FighterAvatar fighter={a} size="lg" />
               <div className="min-w-0">
-                <div className="truncate font-display text-lg font-bold text-white group-hover:text-[#ff6b66]">{a.name}</div>
+                <div className="truncate font-display text-lg font-bold text-white">{a.name}</div>
                 <div className="flex items-center gap-1.5 text-[11px] text-zinc-500">
                   <Flag cc={a.cc} className="h-3 w-4" /> <RecordText fighter={a} />
                 </div>
               </div>
-            </button>
+            </div>
             <div className="flex flex-col items-center">
               <div className="font-display text-2xl font-black text-[#e0b64c]">VS</div>
               <OddsChip odds={engine.oddsA} side="A" />
             </div>
-            <button onClick={() => setSimSpec(null)} className="group flex flex-row-reverse items-center gap-3 text-right" title="View profile">
+            <div className="group flex flex-row-reverse items-center gap-3 text-right">
               <FighterAvatar fighter={b} size="lg" />
               <div className="min-w-0">
-                <div className="truncate font-display text-lg font-bold text-white group-hover:text-[#ff6b66]">{b.name}</div>
+                <div className="truncate font-display text-lg font-bold text-white">{b.name}</div>
                 <div className="flex flex-row-reverse items-center justify-end gap-1.5 text-[11px] text-zinc-500">
                   <Flag cc={b.cc} className="h-3 w-4" /> <RecordText fighter={b} />
                 </div>
               </div>
-            </button>
+            </div>
           </div>
 
           {/* Math panel */}
@@ -427,32 +494,54 @@ export function FightSimDialog() {
             </div>
           )}
 
-          {/* Round-by-round */}
+          {/* Play-by-play */}
           {sim && (
             <div className="mt-4 space-y-2">
-              {sim.rounds.slice(0, revealed).map((r) => (
-                <div
-                  key={r.round}
-                  className={`rounded-lg border px-3 py-2.5 transition-colors ${
-                    r.finish
-                      ? "border-[#e5322d]/60 bg-[#e5322d]/10"
-                      : "border-white/10 bg-white/[0.03]"
-                  }`}
-                >
-                  <div className="flex items-center justify-between">
-                    <span className="font-display text-xs font-bold tracking-widest text-zinc-300">ROUND {r.round}</span>
-                    <span className="text-[10px] num text-zinc-500">
-                      sig strikes: {r.aLanded} — {r.bLanded}
-                    </span>
+              {shownRounds.map((r) => {
+                const beats = r.beats?.length ? r.beats : [r.text];
+                const before = sim.rounds.slice(0, sim.rounds.indexOf(r)).reduce((s, x) => s + (x.beats?.length ?? 1), 0);
+                const shown = Math.max(0, Math.min(beats.length, revealed - before));
+                const lastOfRound = before + shown >= before + beats.length;
+                return (
+                  <div
+                    key={r.round}
+                    className={`rounded-lg border transition-colors ${
+                      r.finish && lastOfRound
+                        ? "border-[#e5322d]/60 bg-[#e5322d]/10"
+                        : "border-white/10 bg-white/[0.03]"
+                    }`}
+                  >
+                    <div className="flex items-center justify-between border-b border-white/5 px-3 py-1.5">
+                      <span className="font-display text-xs font-bold tracking-widest text-zinc-300">ROUND {r.round}</span>
+                      <span className="text-[10px] num text-zinc-500">
+                        sig strikes: {r.aLanded} — {r.bLanded}
+                      </span>
+                    </div>
+                    <div className="space-y-1.5 px-3 py-2">
+                      {beats.slice(0, shown).map((beat, i) => (
+                        <p
+                          key={i}
+                          className={`text-xs leading-relaxed transition-colors ${
+                            /CLEAN|HURT|WAVES IT OFF|TAPS|TIGHT/.test(beat)
+                              ? "font-semibold text-[#ff948f]"
+                              : "text-zinc-300"
+                          }`}
+                        >
+                          {beat}
+                        </p>
+                      ))}
+                    </div>
                   </div>
-                  <p className="mt-1 text-xs leading-relaxed text-zinc-300">{r.text}</p>
-                </div>
-              ))}
-              {phase === "running" && revealed < sim.rounds.length && (
+                );
+              })}
+              {phase === "running" && revealed < timeline.length && (
                 <div className="flex items-center justify-center gap-1.5 py-3">
                   <span className="h-2 w-2 animate-pulse rounded-full bg-[#e5322d]" />
                   <span className="h-2 w-2 animate-pulse rounded-full bg-[#e5322d] [animation-delay:150ms]" />
                   <span className="h-2 w-2 animate-pulse rounded-full bg-[#e5322d] [animation-delay:300ms]" />
+                  <span className="ml-2 text-[10px] text-zinc-500">
+                    {revealed}/{timeline.length} moments
+                  </span>
                 </div>
               )}
             </div>
@@ -492,6 +581,11 @@ export function FightSimDialog() {
                   ))}
                 </div>
               )}
+              <div className="mt-3 rounded-lg border border-white/10 bg-black/30 px-3 py-2 text-[10px] font-display tracking-widest text-zinc-400">
+                {isEventBout
+                  ? "OFFICIAL UNIVERSE RESULT — WRITTEN TO BOTH CAREER RECORDS · RANKINGS & TITLE UPDATED"
+                  : "FIGHT LAB EXHIBITION — RECORDS UNTOUCHED · BOOK IT ON AN EVENT TO MAKE IT COUNT"}
+              </div>
               {activeBets.length > 0 && (
                 <div className="mt-3 rounded-lg border border-white/10 bg-black/30 px-3 py-2 text-xs">
                   {activeBets.map((bet) => {
@@ -522,7 +616,7 @@ export function FightSimDialog() {
                 className="red-grad h-12 flex-1 font-display text-base font-bold tracking-widest text-white hover:opacity-90"
               >
                 <Play className="mr-2 h-5 w-5" />
-                RUN SIMULATION
+                {isEventBout ? "WATCH IT LIVE" : "RUN SIMULATION"}
               </Button>
             )}
             {phase !== "idle" && (

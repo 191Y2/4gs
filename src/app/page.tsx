@@ -12,7 +12,7 @@ import { FighterProfileDialog } from "@/components/octagon/FighterProfile";
 import { BetDialog, FightSimDialog } from "@/components/octagon/BettingDialogs";
 import { BetHistorySheet } from "@/components/octagon/BetHistory";
 import { useBetStore } from "@/lib/store";
-import { useCareersVersion } from "@/lib/careers";
+import { useUniverseVersion } from "@/lib/universe";
 import { getFighter, ROSTER } from "@/lib/data";
 import { cn } from "@/lib/utils";
 import { Octagon, Home, Trophy, Users, Swords, CalendarDays, Wallet, History, ChevronUp } from "lucide-react";
@@ -32,10 +32,9 @@ function Shell() {
   const [historyOpen, setHistoryOpen] = useState(false);
   const { mounted, setSimSpec } = useApp();
   const { bankroll, bets } = useBetStore();
-  // simulated results mutate fighters' career records — this re-renders the
-  // whole shell (roster tiles, profiles, tale-of-tape records) when a
-  // Fight Lab win/loss lands on the books
-  useCareersVersion();
+  // universe events mutate fighters' records, rankings & belts — this
+  // re-renders the whole shell when an event bout lands on the books
+  useUniverseVersion();
   const net = bets.filter((b) => b.status !== "open").reduce((s, b) => s + (b.status === "won" ? (b.payout ?? 0) : -b.stake), 0);
   const openCount = bets.filter((b) => b.status === "open").length;
 

@@ -1,279 +1,725 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { motion } from "framer-motion";
 import { toast } from "sonner";
-import { EVENTS, getFighter } from "@/lib/data";
-import { computeOdds, fmtOdds, simulateFight, resultSummary } from "@/lib/engine";
-import { maybeTransferBelt } from "@/lib/belts";
-import { recordSimResult } from "@/lib/careers";
+import { getFighter } from "@/lib/data";
+import { computeOdds, fmtOdds, simulateFight, resultSummary, SimResult } from "@/lib/engine";
 import { useBetStore } from "@/lib/store";
+import { Fighter, SimEvent, SimEventBout, EventSection } from "@/lib/types";
+import {
+  addBout,
+  boutSectionLabel,
+  createEvent,
+  currentSaturday,
+  currentWeekEvent,
+  eventBouts,
+  eventDisplayName,
+  events,
+  isoOf,
+  isTitleBout,
+  moveBout,
+  nextEventNumber,
+  numberedAvailableThisMonth,
+  pastEvents,
+  prettyDate,
+  recordEventBout,
+  removeBout,
+  simRecord,
+  useUniverseVersion,
+} from "@/lib/universe";
 import { BoutSpec, useApp } from "./AppContext";
-import { FighterAvatar, Flag, RecordText } from "./shared";
+import { FighterPickerDialog } from "./FighterPicker";
+import { FighterAvatar, RecordText, OddsChip } from "./shared";
 import { Button } from "@/components/ui/button";
-import { Countdown } from "./HomeTab";
-import { MapPin, Tv, DollarSign, Play, Zap, Trophy, Check } from "lucide-react";
+import {
+  CalendarDays, Plus, Play, Eye, ChevronUp, ChevronDown, X, Crown,
+  Tv, Dices, MapPin, Radio, Check, Trophy,
+} from "lucide-react";
 
-function EventBoutRow({ spec, realOdds }: { spec: BoutSpec; realOdds?: boolean }) {
-  const a = getFighter(spec.aId)!;
-  const b = getFighter(spec.bId)!;
-  const { openProfile, setSimSpec, setBetSpec } = useApp();
-  const engine = computeOdds(a, b, spec.houseA, spec.houseB);
+// ---------- helpers ----------
+function fmtSimRecord(f: Fighter): string {
+  const s = simRecord(f);
+  return `${s.w}-${s.l}-${s.d}`;
+}
+
+function methodText(res: NonNullable<SimEventBout["result"]>): string {
+  const base =
+    res.method === "KO" ? `KO/TKO${res.detail ? ` (${res.detail})` : ""}` :
+    res.method === "SUB" ? `SUB${res.detail ? ` (${res.detail})` : ""}` :
+    res.method === "UDEC" ? "Unanimous Dec" :
+    res.method === "SDEC" ? "Split Dec" :
+    res.method === "MDEC" ? "Majority Dec" : "DQ";
+  return res.method === "KO" || res.method === "SUB" ? `${base} · R${res.round} ${res.time}` : base;
+}
+
+// settle any open wallet bets that target this pair under this event label
+function settleBetsForBout(aId: string, bId: string, label: string, sim: SimResult) {
+  const a = getFighter(aId);
+  const b = getFighter(bId);
+  if (!a || !b) return { won: 0, lost: 0, staked: 0 };
+  const note = resultSummary(sim, a, b);
+  const winnerId = sim.winner === "A" ? aId : sim.winner === "B" ? bId : "";
+  let won = 0;
+  let lost = 0;
+  let staked = 0;
+  for (const bet of useBetStore.getState().bets) {
+    if (bet.status !== "open" || bet.eventLabel !== label) continue;
+    if (
+      !((bet.bettorFighterId === aId && bet.opponentId === bId) ||
+        (bet.bettorFighterId === bId && bet.opponentId === aId))
+    ) continue;
+    const isWin = bet.bettorFighterId === winnerId;
+    const payout = bet.stake * (bet.decOdds - 1);
+    useBetStore.getState().settleBet(bet.id, isWin, note, payout);
+    if (isWin) {
+      won++;
+    } else {
+      lost++;
+      staked += bet.stake;
+    }
+  }
+  return { won, lost, staked };
+}
+
+// ---------- bout builder dialog ----------
+function BoutBuilder({
+  eventId,
+  section,
+  excludeIds,
+  onDone,
+}: {
+  eventId: string;
+  section: EventSection;
+  excludeIds: string[];
+  onDone: () => void;
+}) {
+  const [picking, setPicking] = useState<null | "A" | "B">(null);
+  const [a, setA] = useState<Fighter | null>(null);
+  const [b, setB] = useState<Fighter | null>(null);
+
+  const add = () => {
+    if (!a || !b) return;
+    const ok = addBout(eventId, a.id, b.id, section);
+    if (ok) {
+      toast.success(`${a.name} vs ${b.name} added to ${section === "main" ? "the main card" : section === "prelim" ? "prelims" : "early prelims"}`);
+      onDone();
+    } else {
+      toast.error("Those fighters are already booked on this card");
+    }
+  };
 
   return (
-    <div className="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-2 rounded-xl border border-white/5 bg-white/[0.02] px-3 py-3 transition-colors hover:border-white/15 sm:gap-4 sm:px-4">
-      {/* fighter A */}
-      <div className="flex items-center gap-2.5 sm:gap-3">
-        <button onClick={() => openProfile(a.id)} className="shrink-0" title={a.name}>
-          <FighterAvatar fighter={a} size="sm" />
+    <div className="space-y-3">
+      <div className="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-3">
+        <button
+          onClick={() => setPicking("A")}
+          className={`flex h-28 w-full flex-col items-center justify-center gap-1 rounded-xl border p-3 text-center transition-colors ${
+            a ? "border-[#e5322d]/40 bg-[#e5322d]/10" : "border-dashed border-white/15 bg-white/[0.02] hover:border-[#e5322d]/50"
+          }`}
+        >
+          {a ? (
+            <>
+              <span className="truncate font-display text-sm font-bold text-white">{a.name}</span>
+              <span className="text-[10px] text-zinc-500">
+                {fmtSimRecord(a)} HQ · <RecordText fighter={a} /> real
+              </span>
+            </>
+          ) : (
+            <>
+              <Plus className="h-5 w-5 text-zinc-600" />
+              <span className="text-[10px] font-display tracking-widest text-zinc-500">RED CORNER</span>
+            </>
+          )}
         </button>
-        <div className="min-w-0">
-          <button onClick={() => openProfile(a.id)} className="block max-w-full truncate text-left text-sm font-semibold text-zinc-100 hover:text-[#ff6b66]">
-            {a.name}
-          </button>
-          <div className="flex items-center gap-1.5 text-[10px] text-zinc-500">
-            <Flag cc={a.cc} className="h-2 w-3.5" />
-            <RecordText fighter={a} className="text-zinc-500" />
-          </div>
-          <button
-            onClick={() => setBetSpec({ spec, side: "A" })}
-            className="num mt-1 inline-flex items-center gap-1 rounded border border-[#e5322d]/30 bg-[#e5322d]/5 px-1.5 py-px text-[11px] font-bold text-[#ff6b66] hover:bg-[#e5322d]/15"
-          >
-            <DollarSign className="h-2.5 w-2.5" /> {fmtOdds(spec.houseA ?? engine.oddsA)}
-          </button>
-        </div>
+        <span className="font-display text-lg font-black text-[#e0b64c]">VS</span>
+        <button
+          onClick={() => setPicking("B")}
+          className={`flex h-28 w-full flex-col items-center justify-center gap-1 rounded-xl border p-3 text-center transition-colors ${
+            b ? "border-sky-500/40 bg-sky-500/10" : "border-dashed border-white/15 bg-white/[0.02] hover:border-sky-500/50"
+          }`}
+        >
+          {b ? (
+            <>
+              <span className="truncate font-display text-sm font-bold text-white">{b.name}</span>
+              <span className="text-[10px] text-zinc-500">
+                {fmtSimRecord(b)} HQ · <RecordText fighter={b} /> real
+              </span>
+            </>
+          ) : (
+            <>
+              <Plus className="h-5 w-5 text-zinc-600" />
+              <span className="text-[10px] font-display tracking-widest text-zinc-500">BLUE CORNER</span>
+            </>
+          )}
+        </button>
       </div>
 
-      {/* center */}
-      <div className="flex flex-col items-center gap-1 px-1">
-        <span className="font-display text-[10px] font-bold text-zinc-600">
-          {spec.title ? "TITLE" : `${spec.rounds}R`}
-        </span>
-        <Button
-          size="sm"
-          variant="outline"
-          onClick={() => setSimSpec(spec)}
-          className="h-7 border-white/15 bg-white/5 px-2.5 font-display text-[10px] font-bold tracking-wider text-zinc-200 hover:bg-white/10"
-        >
-          <Play className="mr-1 h-3 w-3 text-[#e0b64c]" /> SIM
+      {a && b && (
+        <div className="rounded-lg border border-white/10 bg-white/[0.03] px-3 py-2 text-center text-[11px] text-zinc-400">
+          {isTitleBout(a, b) ? (
+            <span className="font-display font-bold tracking-widest text-[#e0b64c]">
+              <Crown className="mr-1 inline h-3 w-3" /> CHAMPIONSHIP BOUT — 5 ROUNDS
+            </span>
+          ) : (
+            <span>3 rounds · {fmtOdds(computeOdds(a, b).oddsA)} / {fmtOdds(computeOdds(a, b).oddsB)}</span>
+          )}
+        </div>
+      )}
+
+      <div className="flex gap-2">
+        <Button onClick={add} disabled={!a || !b} className="red-grad flex-1 font-display font-bold tracking-widest text-white hover:opacity-90 disabled:opacity-40">
+          <Plus className="mr-1.5 h-4 w-4" /> ADD BOUT
+        </Button>
+        <Button onClick={onDone} variant="outline" className="border-white/15 bg-white/5 font-display font-bold tracking-widest text-zinc-300 hover:bg-white/10">
+          CANCEL
         </Button>
       </div>
 
-      {/* fighter B */}
-      <div className="flex flex-row-reverse items-center gap-2.5 sm:gap-3">
-        <button onClick={() => openProfile(b.id)} className="shrink-0" title={b.name}>
-          <FighterAvatar fighter={b} size="sm" />
-        </button>
-        <div className="min-w-0 text-right">
-          <button onClick={() => openProfile(b.id)} className="block max-w-full truncate text-right text-sm font-semibold text-zinc-100 hover:text-[#ff6b66]">
-            {b.name}
-          </button>
-          <div className="flex flex-row-reverse items-center justify-end gap-1.5 text-[10px] text-zinc-500">
-            <Flag cc={b.cc} className="h-2 w-3.5" />
-            <RecordText fighter={b} className="text-zinc-500" />
-          </div>
-          <button
-            onClick={() => setBetSpec({ spec, side: "B" })}
-            className="num mt-1 inline-flex items-center gap-1 rounded border border-emerald-500/30 bg-emerald-500/5 px-1.5 py-px text-[11px] font-bold text-emerald-400 hover:bg-emerald-500/15"
-          >
-            <DollarSign className="h-2.5 w-2.5" /> {fmtOdds(spec.houseB ?? engine.oddsB)}
-          </button>
+      <FighterPickerDialog
+        open={picking !== null}
+        onOpenChange={(v) => !v && setPicking(null)}
+        title={picking === "A" ? "Red Corner" : "Blue Corner"}
+        excludeIds={[...excludeIds, picking === "A" ? b?.id : a?.id].filter(Boolean) as string[]}
+        onSelect={(f) => {
+          if (picking === "A") setA(f);
+          else setB(f);
+          setPicking(null);
+        }}
+      />
+    </div>
+  );
+}
+
+// ---------- one bout row ----------
+function BoutRow({ ev, bout, index }: { ev: SimEvent; bout: SimEventBout; index: number }) {
+  const { openProfile, setSimSpec, setBetSpec } = useApp();
+  const a = getFighter(bout.aId)!;
+  const b = getFighter(bout.bId)!;
+  if (!a || !b) return null;
+  const odds = computeOdds(a, b);
+  const label = eventDisplayName(ev);
+  const fought = !!bout.result;
+  const winner = bout.result?.winner === "A" ? a : bout.result?.winner === "B" ? b : null;
+  const loser = bout.result?.winner === "A" ? b : bout.result?.winner === "B" ? a : null;
+  const isTitle = bout.title || isTitleBout(a, b);
+  const sectionList = eventBouts(ev, bout.section);
+
+  const quickSim = () => {
+    const sim = simulateFight(a, b, bout.rounds);
+    const outcome = recordEventBout(ev.id, bout.id, sim);
+    if (outcome) {
+      toast.success(outcome.note);
+      if (outcome.belt) {
+        toast.success(
+          `NEW CHAMPION! ${outcome.belt.newChamp.name} dethrones ${outcome.belt.oldChamp.name} — the ${outcome.belt.divName} belt changes hands!`,
+          { duration: 7000 }
+        );
+      }
+      settleBetsForBout(a.id, b.id, label, sim);
+    }
+  };
+
+  const spec: BoutSpec = {
+    aId: a.id,
+    bId: b.id,
+    label,
+    rounds: bout.rounds,
+    source: { eventId: ev.id, boutId: bout.id },
+    title: isTitle ? "Championship Bout" : undefined,
+  };
+
+  return (
+    <div className={`rounded-xl border px-3 py-3 transition-colors ${
+      fought
+        ? "border-white/5 bg-white/[0.015] opacity-80"
+        : isTitle
+          ? "border-[#e0b64c]/30 bg-gradient-to-r from-[#e0b64c]/[0.06] to-transparent"
+          : "border-white/10 bg-white/[0.02]"
+    }`}>
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex items-center gap-1.5">
+          <span className="num font-display text-[10px] font-bold text-zinc-600">{index + 1}</span>
+          <span className={`text-[9px] font-display tracking-[0.2em] ${
+            fought ? "text-zinc-600" : "text-zinc-400"
+          }`}>
+            {boutSectionLabel(ev, bout)}
+          </span>
+          {isTitle && (
+            <span className="inline-flex items-center gap-1 rounded border border-[#e0b64c]/50 bg-[#e0b64c]/10 px-1.5 py-px text-[9px] font-display tracking-widest text-[#e0b64c]">
+              <Crown className="h-2.5 w-2.5" /> TITLE
+            </span>
+          )}
+          {bout.rounds === 5 && !isTitle && (
+            <span className="rounded border border-white/15 bg-white/5 px-1.5 py-px text-[9px] font-display tracking-widest text-zinc-400">5 RDS</span>
+          )}
         </div>
+        {!fought && (
+          <div className="flex items-center gap-0.5">
+            <button
+              onClick={() => moveBout(ev.id, bout.id, -1)}
+              disabled={index === 0 || !!sectionList[index - 1]?.result}
+              className="rounded p-1 text-zinc-500 transition-colors hover:text-white disabled:opacity-20"
+              title="Move up"
+            >
+              <ChevronUp className="h-3.5 w-3.5" />
+            </button>
+            <button
+              onClick={() => moveBout(ev.id, bout.id, 1)}
+              disabled={index === sectionList.length - 1 || !!sectionList[index + 1]?.result}
+              className="rounded p-1 text-zinc-500 transition-colors hover:text-white disabled:opacity-20"
+              title="Move down"
+            >
+              <ChevronDown className="h-3.5 w-3.5" />
+            </button>
+            <button
+              onClick={() => removeBout(ev.id, bout.id)}
+              className="rounded p-1 text-zinc-500 transition-colors hover:text-[#ff6b66]"
+              title="Remove bout"
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
+          </div>
+        )}
+      </div>
+
+      <div className="mt-2 grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-2">
+        <button onClick={() => openProfile(a.id)} className="group flex min-w-0 items-center gap-2 text-left">
+          <FighterAvatar fighter={a} size="sm" />
+          <div className="min-w-0">
+            <div className={`truncate text-sm font-semibold group-hover:text-[#ff6b66] ${fought && winner === a ? "text-emerald-400" : "text-zinc-100"}`}>
+              {a.name}
+            </div>
+            <div className="text-[10px] text-zinc-500">
+              <span className="num font-bold text-[#e0b64c]">{fmtSimRecord(a)}</span> HQ · <RecordText fighter={a} />
+            </div>
+          </div>
+        </button>
+        <div className="flex flex-col items-center gap-0.5">
+          {fought && bout.result ? (
+            <span className="num text-[10px] font-bold text-zinc-500">{bout.result.method === "KO" || bout.result.method === "SUB" ? `R${bout.result.round}` : "DEC"}</span>
+          ) : (
+            <OddsChip odds={odds.oddsA} side="A" />
+          )}
+          <span className="font-display text-[10px] font-black text-zinc-600">VS</span>
+          {fought && bout.result ? (
+            <span className="num text-[10px] font-bold text-zinc-500">{bout.result.method === "KO" || bout.result.method === "SUB" ? bout.result.time : "29-28"}</span>
+          ) : (
+            <OddsChip odds={odds.oddsB} side="B" />
+          )}
+        </div>
+        <button onClick={() => openProfile(b.id)} className="group flex min-w-0 flex-row-reverse items-center gap-2 text-right">
+          <FighterAvatar fighter={b} size="sm" />
+          <div className="min-w-0">
+            <div className={`truncate text-sm font-semibold group-hover:text-[#ff6b66] ${fought && winner === b ? "text-emerald-400" : "text-zinc-100"}`}>
+              {b.name}
+            </div>
+            <div className="text-[10px] text-zinc-500">
+              <span className="num font-bold text-[#e0b64c]">{fmtSimRecord(b)}</span> HQ · <RecordText fighter={b} />
+            </div>
+          </div>
+        </button>
+      </div>
+
+      {fought && bout.result && winner && loser ? (
+        <div className="mt-2 flex items-center justify-between rounded-lg border border-white/5 bg-black/30 px-3 py-1.5">
+          <span className="text-[11px] text-zinc-400">
+            <Check className="mr-1 inline h-3 w-3 text-emerald-400" />
+            <span className="font-semibold text-zinc-200">{winner.name}</span> def. {loser.name}
+          </span>
+          <span className="text-[10px] text-zinc-500">{methodText(bout.result)}</span>
+        </div>
+      ) : (
+        <div className="mt-2 flex flex-wrap gap-1.5">
+          <Button
+            size="sm"
+            onClick={() => setSimSpec(spec)}
+            className="red-grad h-8 font-display text-[10px] font-bold tracking-widest text-white hover:opacity-90"
+          >
+            <Eye className="mr-1 h-3 w-3" /> WATCH LIVE
+          </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={quickSim}
+            className="h-8 border-white/15 bg-white/5 font-display text-[10px] font-bold tracking-widest text-zinc-300 hover:bg-white/10"
+          >
+            <Play className="mr-1 h-3 w-3" /> QUICK SIM
+          </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => setBetSpec({ spec, side: "A" })}
+            className="h-8 border-[#e0b64c]/40 bg-[#e0b64c]/10 font-display text-[10px] font-bold tracking-widest text-[#e0b64c] hover:bg-[#e0b64c]/20"
+          >
+            ${fmtOdds(odds.oddsA)}
+          </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => setBetSpec({ spec, side: "B" })}
+            className="h-8 border-[#e0b64c]/40 bg-[#e0b64c]/10 font-display text-[10px] font-bold tracking-widest text-[#e0b64c] hover:bg-[#e0b64c]/20"
+          >
+            ${fmtOdds(odds.oddsB)}
+          </Button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ---------- event card ----------
+function SectionBlock({ ev, section }: { ev: SimEvent; section: EventSection }) {
+  const [building, setBuilding] = useState(false);
+  const bouts = eventBouts(ev, section);
+  const title = section === "main" ? "MAIN CARD" : section === "prelim" ? "PRELIMS" : "EARLY PRELIMS";
+  const subtitle =
+    section === "main" ? "Top bout = main event · second = co-main" : section === "prelim" ? "Fueling the PPV warm-up" : "First through the curtain";
+
+  return (
+    <div>
+      <div className="mb-2 flex items-center justify-between">
+        <div>
+          <h4 className="font-display text-xs font-bold tracking-[0.2em] text-zinc-300">{title}</h4>
+          <p className="text-[9px] text-zinc-600">{subtitle}</p>
+        </div>
+        {!ev.completed && (
+          <button
+            onClick={() => setBuilding(true)}
+            className="flex items-center gap-1 rounded-lg border border-dashed border-white/20 bg-white/[0.02] px-2.5 py-1 text-[10px] font-display font-bold tracking-widest text-zinc-400 transition-colors hover:border-[#e5322d]/50 hover:text-white"
+          >
+            <Plus className="h-3 w-3" /> ADD BOUT
+          </button>
+        )}
+      </div>
+
+      {building && (
+        <div className="mb-3 rounded-xl border border-white/10 bg-black/40 p-3">
+          <BoutBuilder
+            eventId={ev.id}
+            section={section}
+            excludeIds={ev.bouts.flatMap((b) => [b.aId, b.bId])}
+            onDone={() => setBuilding(false)}
+          />
+        </div>
+      )}
+
+      <div className="space-y-2">
+        {bouts.map((bout, i) => (
+          <BoutRow key={bout.id} ev={ev} bout={bout} index={i} />
+        ))}
+        {bouts.length === 0 && !building && (
+          <div className="rounded-xl border border-dashed border-white/10 py-5 text-center">
+            <p className="text-[10px] font-display tracking-widest text-zinc-600">NO BOUTS YET</p>
+          </div>
+        )}
       </div>
     </div>
   );
 }
 
-function EventCard({ eventId, index }: { eventId: string; index: number }) {
-  const ev = EVENTS.find((e) => e.id === eventId)!;
+function EventCard({ ev }: { ev: SimEvent }) {
   const { setSimSpec } = useApp();
-  const { bets, settleBet, bankroll } = useBetStore();
-  const [fastResults, setFastResults] = useState<{ boutLabel: string; text: string }[] | null>(null);
+  const { bets } = useBetStore();
+  const name = eventDisplayName(ev);
+  const pending = ev.bouts.filter((b) => !b.result);
+  const openBetsCount = bets.filter(
+    (b) => b.status === "open" && b.eventLabel === name
+  ).length;
 
-  const openBets = useMemo(
-    () => bets.filter((b) => b.status === "open" && b.eventLabel === ev.name),
-    [bets, ev.name]
-  );
-
-  const runFastSim = () => {
-    const results: { boutLabel: string; text: string }[] = [];
-    let wonCount = 0;
-    let lostCount = 0;
-    let profit = 0;
-    for (const bout of ev.bouts) {
-      const a = getFighter(bout.aId)!;
-      const b = getFighter(bout.bId)!;
-      const houseA = bout.oddsA;
-      const houseB = bout.oddsB;
-      let pA: number | undefined;
-      if (houseA != null && houseB != null) {
-        const ph = houseA > 0 ? 100 / (houseA + 100) : Math.abs(houseA) / (Math.abs(houseA) + 100);
-        const pb = houseB > 0 ? 100 / (houseB + 100) : Math.abs(houseB) / (Math.abs(houseB) + 100);
-        pA = ph / (ph + pb);
-      }
-      const sim = simulateFight(a, b, bout.rounds, pA);
-      const winnerId = sim.winner === "A" ? a.id : b.id;
-      const note = resultSummary(sim, a, b);
-      results.push({
-        boutLabel: bout.label ?? `${a.name} vs ${b.name}`,
-        text: note,
-      });
-      // the event played out — careers update with the results
-      recordSimResult(a, b, sim, { label: ev.name, title: bout.title });
-      // DYNAMIC CHAMPIONSHIPS — simulate a title upset and the belt moves
-      const belt = maybeTransferBelt(a, b, sim.winner);
-      if (belt) {
-        results.push({
-          boutLabel: "TITLE CHANGE",
-          text: `${belt.newChamp.name} dethrones ${belt.oldChamp.name} — new ${belt.divName} champion!`,
-        });
-      }
-      // settle open bets on this bout
-      for (const bet of openBets) {
-        if (
-          (bet.bettorFighterId === bout.aId && bet.opponentId === bout.bId) ||
-          (bet.bettorFighterId === bout.bId && bet.opponentId === bout.aId)
-        ) {
-          const isWin = bet.bettorFighterId === winnerId;
-          const payout = bet.stake * (bet.decOdds - 1);
-          settleBet(bet.id, isWin, note, payout);
-          if (isWin) {
-            wonCount++;
-            profit += payout;
-          } else {
-            lostCount++;
+  const runFullCard = () => {
+    if (pending.length === 0) return;
+    // broadcast order: early prelims → prelims → main card
+    const order: EventSection[] = ["early", "prelim", "main"];
+    let won = 0;
+    let lost = 0;
+    let staked = 0;
+    let belts = 0;
+    for (const section of order) {
+      for (const bout of eventBouts(ev, section)) {
+        if (bout.result) continue;
+        const a = getFighter(bout.aId)!;
+        const b = getFighter(bout.bId)!;
+        if (!a || !b) continue;
+        const sim = simulateFight(a, b, bout.rounds);
+        const outcome = recordEventBout(ev.id, bout.id, sim);
+        if (outcome) {
+          if (outcome.belt) {
+            belts++;
+            toast.success(
+              `NEW CHAMPION! ${outcome.belt.newChamp.name} dethrones ${outcome.belt.oldChamp.name} — the ${outcome.belt.divName} belt changes hands!`,
+              { duration: 7000 }
+            );
           }
+          const s = settleBetsForBout(a.id, b.id, name, sim);
+          won += s.won;
+          lost += s.lost;
+          staked += s.staked;
         }
       }
     }
-    setFastResults(results);
-    if (wonCount + lostCount > 0) {
-      const staked = openBets.reduce((s, b) => s + b.stake, 0);
-      if (profit > 0) {
-        toast.success(`Event settled: +$${profit.toFixed(2)} on ${wonCount}W-${lostCount}L`);
-      } else {
-        toast.error(`Event settled: −$${(staked - profit).toFixed(2)} on ${wonCount}W-${lostCount}L`);
-      }
-    } else {
-      toast.info("Event simulated — place bets first to ride the card!");
+    toast.success(`${name} is in the books — records, rankings & titles updated.`, { duration: 5000 });
+    if (won + lost > 0) {
+      if (won > 0) toast.success(`Event bets: ${won}W-${lost}L`);
+      else toast.error(`Event bets: 0W-${lost}L · −$${staked.toFixed(2)}`);
     }
   };
+
+  const mainBout = eventBouts(ev, "main")[0];
 
   return (
     <motion.section
       initial={{ opacity: 0, y: 14 }}
       animate={{ opacity: 1, y: 0 }}
-      transition={{ delay: index * 0.06 }}
       className="overflow-hidden rounded-2xl border border-white/10 bg-white/[0.015]"
     >
-      {/* header */}
       <div className="relative border-b border-white/10 px-4 py-4 sm:px-5">
-        <div className="absolute inset-0 octagon-grid opacity-50" />
-        <div className="relative flex flex-wrap items-start justify-between gap-3">
+        <div className="absolute inset-x-0 top-0 h-0.5 red-grad" />
+        <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
-            <div className="flex items-center gap-2">
-              <span className="rounded bg-[#e5322d]/15 border border-[#e5322d]/40 px-1.5 py-0.5 text-[9px] font-display font-bold tracking-widest text-[#ff6b66]">
-                {ev.broadcaster}
-              </span>
-              <span className="text-[10px] font-display tracking-widest text-zinc-500 num">{ev.date}</span>
-            </div>
-            <h3 className="mt-1.5 font-display text-xl font-bold text-white sm:text-2xl">{ev.name}</h3>
-            <div className="mt-1 flex items-center gap-3 text-[11px] text-zinc-500">
-              <span className="flex items-center gap-1"><MapPin className="h-3 w-3" /> {ev.venue}, {ev.city}</span>
-              <span className="flex items-center gap-1"><Tv className="h-3 w-3" /> {ev.broadcaster}</span>
-            </div>
-          </div>
-          <div className="text-right">
-            <Countdown date={ev.date} label={ev.city.toUpperCase()} />
-            <div className="num mt-1 text-[10px] text-zinc-500">
-              {openBets.length > 0 ? (
-                <span className="text-[#e0b64c]">{openBets.length} open bet{openBets.length > 1 ? "s" : ""} on this card</span>
+            <div className="flex flex-wrap items-center gap-2">
+              {ev.type === "numbered" ? (
+                <span className="rounded-full border border-[#e0b64c]/50 bg-[#e0b64c]/10 px-2.5 py-0.5 font-display text-[10px] font-bold tracking-widest text-[#e0b64c]">
+                  UFC {ev.number}
+                </span>
               ) : (
-                `bankroll $${bankroll.toFixed(2)}`
+                <span className="rounded-full border border-sky-500/40 bg-sky-500/10 px-2.5 py-0.5 font-display text-[10px] font-bold tracking-widest text-sky-400">
+                  FIGHT NIGHT
+                </span>
+              )}
+              {ev.completed ? (
+                <span className="rounded-full border border-emerald-500/40 bg-emerald-500/10 px-2.5 py-0.5 font-display text-[10px] font-bold tracking-widest text-emerald-400">
+                  <Check className="mr-1 inline h-2.5 w-2.5" /> COMPLETED
+                </span>
+              ) : (
+                <span className="flex items-center gap-1 rounded-full border border-[#e5322d]/40 bg-[#e5322d]/10 px-2.5 py-0.5 font-display text-[10px] font-bold tracking-widest text-[#ff6b66]">
+                  <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-[#e5322d]" /> THIS SATURDAY
+                </span>
               )}
             </div>
+            <h3 className="mt-1.5 font-display text-2xl font-bold text-white">{name}</h3>
+            <p className="mt-0.5 flex items-center gap-1.5 text-[11px] text-zinc-500">
+              <CalendarDays className="h-3 w-3" /> {prettyDate(ev.dateISO)}
+              <span className="text-zinc-700">·</span>
+              <MapPin className="h-3 w-3" /> {ev.venue}, {ev.city}
+              <span className="text-zinc-700">·</span>
+              <Tv className="h-3 w-3" /> {ev.type === "numbered" ? "PPV MAIN" : "ESPN+"}
+            </p>
+          </div>
+          <div className="text-right">
+            <div className="num font-display text-2xl font-bold text-white">{ev.bouts.length}</div>
+            <div className="text-[9px] font-display tracking-widest text-zinc-500">BOUTS BOOKED</div>
           </div>
         </div>
-      </div>
 
-      {/* bouts */}
-      <div className="space-y-1.5 p-3 sm:p-4">
-        {ev.bouts.map((bout) => (
-          <div key={`${bout.aId}-${bout.bId}`}>
-            {bout.label && (
-              <div className={`mb-1 mt-2 px-1 text-[9px] font-display tracking-[0.2em] uppercase ${
-                bout.title ? "text-[#e0b64c]" : "text-zinc-600"
-              }`}>
-                {bout.label}
-              </div>
-            )}
-            <EventBoutRow
-              spec={{
-                aId: bout.aId,
-                bId: bout.bId,
-                rounds: bout.rounds,
-                label: ev.name,
-                eventId: ev.id,
-                houseA: bout.oddsA,
-                houseB: bout.oddsB,
-              }}
-              realOdds={bout.oddsA != null}
-            />
-          </div>
-        ))}
-      </div>
-
-      {/* fast sim */}
-      <div className="border-t border-white/10 bg-black/30 px-4 py-3">
-        <Button
-          onClick={runFastSim}
-          className="w-full border border-[#e0b64c]/40 bg-[#e0b64c]/10 font-display text-sm font-bold tracking-widest text-[#e0b64c] hover:bg-[#e0b64c]/20"
-          variant="outline"
-        >
-          <Zap className="mr-2 h-4 w-4" /> SIMULATE ENTIRE CARD
-        </Button>
-
-        {fastResults && (
-          <div className="mt-3 space-y-1.5">
-            {fastResults.map((r, i) => (
-              <div key={i} className="flex items-start gap-2 rounded-lg border border-white/10 bg-black/40 px-3 py-2">
-                <Trophy className="mt-0.5 h-3.5 w-3.5 shrink-0 text-[#e0b64c]" />
-                <div>
-                  <div className="text-[9px] font-display tracking-widest text-zinc-600 uppercase">{r.boutLabel}</div>
-                  <div className="text-xs font-semibold text-zinc-200">{r.text}</div>
+        {pending.length > 0 && (
+          <Button
+            onClick={runFullCard}
+            className="red-grad mt-4 h-11 w-full font-display font-sm font-bold tracking-widest text-white hover:opacity-90 sm:w-auto sm:px-8"
+          >
+            <Play className="mr-2 h-4 w-4" /> RUN FULL CARD ({pending.length})
+          </Button>
+        )}
+        {pending.length === 0 && ev.bouts.length > 0 && (
+          <p className="mt-3 text-[10px] text-zinc-500">
+            Every bout is in the books — records, rankings and championship lineage updated.
+            {openBetsCount > 0 && ` ${openBetsCount} open bet${openBetsCount > 1 ? "s" : ""} on this event.`}
+          </p>
+        )}
+        {ev.bouts.length === 0 && (
+          <p className="mt-3 text-[10px] text-zinc-500">Card is empty — add a main event, prelims and early prelims below.</p>
+        )}
+        {mainBout && !mainBout.result && (
+          <button
+            onClick={() =>
+              setSimSpec({
+                aId: mainBout.aId,
+                bId: mainBout.bId,
+                label: name,
+                rounds: mainBout.rounds,
+                source: { eventId: ev.id, boutId: mainBout.id },
+              })
+            }
+            className="mt-3 flex w-full items-center justify-between rounded-xl border border-[#e5322d]/30 bg-gradient-to-r from-[#e5322d]/[0.08] to-transparent px-4 py-3 text-left transition-colors hover:border-[#e5322d]/60"
+          >
+            <div className="flex items-center gap-2">
+              <Radio className="h-4 w-4 text-[#e5322d]" />
+              <div>
+                <div className="text-[9px] font-display tracking-[0.2em] text-[#ff6b66]">MAIN EVENT — WATCH LIVE</div>
+                <div className="text-sm font-semibold text-zinc-200">
+                  {getFighter(mainBout.aId)?.name} vs {getFighter(mainBout.bId)?.name}
                 </div>
               </div>
-            ))}
-            {openBets.length > 0 && (
-              <div className="flex items-center gap-2 rounded-lg border border-emerald-500/30 bg-emerald-500/5 px-3 py-2">
-                <Check className="h-4 w-4 text-emerald-400" />
-                <span className="text-xs text-zinc-300">All open bets on this card have been settled.</span>
-              </div>
-            )}
-          </div>
+            </div>
+            <Eye className="h-4 w-4 text-zinc-500" />
+          </button>
         )}
+      </div>
+
+      <div className="space-y-5 px-4 py-4 sm:px-5">
+        <SectionBlock ev={ev} section="main" />
+        <SectionBlock ev={ev} section="prelim" />
+        <SectionBlock ev={ev} section="early" />
       </div>
     </motion.section>
   );
 }
 
-export function EventsTab() {
+// ---------- past event row ----------
+function PastEventRow({ ev }: { ev: SimEvent }) {
+  const [open, setOpen] = useState(false);
+  const name = eventDisplayName(ev);
+  const mainBout = eventBouts(ev, "main")[0];
+  const mainA = mainBout ? getFighter(mainBout.aId) : null;
+  const mainB = mainBout ? getFighter(mainBout.bId) : null;
+  const mainWin = mainBout?.result
+    ? mainBout.result.winner === "A" ? mainA : mainBout.result.winner === "B" ? mainB : null
+    : null;
+
   return (
-    <div className="space-y-5 pb-8">
-      <div>
-        <h2 className="font-display text-2xl font-bold text-white">UPCOMING CARDS</h2>
-        <p className="mt-0.5 text-xs text-zinc-500">
-          Real lines where available (Edmonton odds via sportsbooks). Bet, then simulate the card to cash your slips.
-        </p>
+    <div className="overflow-hidden rounded-xl border border-white/10 bg-white/[0.015]">
+      <button onClick={() => setOpen(!open)} className="flex w-full items-center gap-3 px-3.5 py-3 text-left transition-colors hover:bg-white/[0.03]">
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-2">
+            <span className={`text-[9px] font-display font-bold tracking-widest ${ev.type === "numbered" ? "text-[#e0b64c]" : "text-sky-400"}`}>
+              {ev.type === "numbered" ? `UFC ${ev.number}` : "FIGHT NIGHT"}
+            </span>
+            <span className="num text-[10px] text-zinc-600">{prettyDate(ev.dateISO)}</span>
+          </div>
+          <div className="truncate font-display text-sm font-bold text-white">{name}</div>
+          {mainWin && mainA && mainB && (
+            <div className="truncate text-[10px] text-zinc-500">
+              {mainWin.name} def. {mainWin === mainA ? mainB.name : mainA.name}
+              {mainBout?.result && ` · ${methodText(mainBout.result)}`}
+            </div>
+          )}
+        </div>
+        <Trophy className="h-4 w-4 shrink-0 text-zinc-600" />
+        <ChevronDown className={`h-4 w-4 shrink-0 text-zinc-600 transition-transform ${open ? "" : "-rotate-90"}`} />
+      </button>
+      {open && (
+        <div className="space-y-1.5 border-t border-white/5 px-3.5 py-3">
+          {(["early", "prelim", "main"] as EventSection[]).flatMap((section) =>
+            eventBouts(ev, section).map((bout) => {
+              const a = getFighter(bout.aId);
+              const b = getFighter(bout.bId);
+              if (!a || !b || !bout.result) return null;
+              const w = bout.result.winner === "A" ? a : bout.result.winner === "B" ? b : null;
+              return (
+                <div key={bout.id} className="flex items-center justify-between gap-2 rounded-lg bg-white/[0.02] px-2.5 py-1.5 text-[11px]">
+                  <span className="shrink-0 text-[8px] font-display tracking-widest text-zinc-600">
+                    {boutSectionLabel(ev, bout)}
+                  </span>
+                  <span className="min-w-0 flex-1 truncate text-zinc-400">
+                    <span className="font-semibold text-zinc-200">{w ? w.name : "Draw"}</span>
+                    {w ? ` def. ${w === a ? b.name : a.name}` : ` — ${a.name} vs ${b.name}`}
+                  </span>
+                  <span className="shrink-0 text-[10px] text-zinc-500">{methodText(bout.result)}</span>
+                </div>
+              );
+            })
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ---------- the tab ----------
+export function EventsTab() {
+  useUniverseVersion();
+  const week = currentSaturday();
+  const current = currentWeekEvent();
+  const past = pastEvents();
+  const all = events();
+  const numberedOk = numberedAvailableThisMonth(`${week.getFullYear()}-${String(week.getMonth() + 1).padStart(2, "0")}-01`);
+  const nextNum = nextEventNumber();
+  const totalBouts = all.reduce((s, e) => s + e.bouts.length, 0);
+
+  const create = (type: "numbered" | "fightnight") => {
+    const res = createEvent(type);
+    if (!res.ok && res.reason) toast.error(res.reason);
+    else if (res.event) toast.success(`${eventDisplayName(res.event)} created — ${prettyDate(res.event.dateISO)} at ${res.event.venue}`);
+  };
+
+  return (
+    <div className="space-y-4 pb-8">
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <h2 className="flex items-center gap-2 font-display text-2xl font-bold text-white">
+            <CalendarDays className="h-5 w-5 text-[#e5322d]" /> UNIVERSE EVENT CENTER
+          </h2>
+          <p className="mt-0.5 text-xs text-zinc-500">
+            Fight weeks run Saturday → Friday · first week Oct 17, 2026 · event results update records, rankings & titles
+          </p>
+        </div>
+        <div className="flex gap-3 text-center">
+          <div className="rounded-lg border border-white/10 bg-white/[0.02] px-3 py-1.5">
+            <div className="num font-display text-lg font-bold text-white">{all.length}</div>
+            <div className="text-[8px] font-display tracking-widest text-zinc-500">EVENTS</div>
+          </div>
+          <div className="rounded-lg border border-white/10 bg-white/[0.02] px-3 py-1.5">
+            <div className="num font-display text-lg font-bold text-white">{totalBouts}</div>
+            <div className="text-[8px] font-display tracking-widest text-zinc-500">FOUGHT</div>
+          </div>
+        </div>
       </div>
-      <div className="grid grid-cols-1 gap-5 xl:grid-cols-2">
-        {EVENTS.map((e, i) => (
-          <EventCard key={e.id} eventId={e.id} index={i} />
-        ))}
-      </div>
-      <p className="text-center text-[10px] text-zinc-600">
-        Cards subject to change. UFC 333 lines are model-generated (Elo engine) until books open.
-      </p>
+
+      {/* current week */}
+      {current ? (
+        <EventCard ev={current} />
+      ) : (
+        <div className="rounded-2xl border border-dashed border-white/15 bg-white/[0.01] px-5 py-8 text-center">
+          <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full border border-white/10 bg-white/5">
+            <CalendarDays className="h-6 w-6 text-zinc-500" />
+          </div>
+          <h3 className="mt-3 font-display text-lg font-bold text-white">NO EVENT THIS WEEK</h3>
+          <p className="mx-auto mt-1 max-w-md text-xs leading-relaxed text-zinc-500">
+            Fight week of <span className="font-semibold text-zinc-300">{prettyDate(isoOf(week))}</span> is open —
+            Saturday night is dark. Book a card and every bout on it counts toward the fighters' OCTAGONHQ records.
+          </p>
+          <div className="mt-5 flex flex-wrap justify-center gap-2">
+            {numberedOk ? (
+              <>
+                <Button onClick={() => create("numbered")} className="red-grad h-12 px-8 font-display font-bold tracking-widest text-white hover:opacity-90">
+                  <Dices className="mr-2 h-4 w-4" /> CREATE UFC {nextNum}
+                </Button>
+                <Button
+                  onClick={() => create("fightnight")}
+                  variant="outline"
+                  className="h-12 border-sky-500/40 bg-sky-500/10 font-display font-bold tracking-widest text-sky-400 hover:bg-sky-500/20"
+                >
+                  CREATE FIGHT NIGHT
+                </Button>
+              </>
+            ) : (
+              <Button
+                onClick={() => create("fightnight")}
+                className="red-grad h-12 px-8 font-display font-bold tracking-widest text-white hover:opacity-90"
+              >
+                <Dices className="mr-2 h-4 w-4" /> CREATE FIGHT NIGHT
+              </Button>
+            )}
+          </div>
+          {numberedOk ? (
+            <p className="mt-3 text-[10px] text-zinc-600">One numbered event per month — Fight Nights fill the other weeks.</p>
+          ) : (
+            <p className="mt-3 text-[10px] text-zinc-600">A numbered event already ran this month — this week is a Fight Night.</p>
+          )}
+        </div>
+      )}
+
+      {/* past events */}
+      {past.length > 0 && (
+        <div>
+          <h3 className="mb-2 font-display text-sm font-bold tracking-wider text-zinc-300">EVENT HISTORY</h3>
+          <div className="space-y-2">
+            {past.map((ev) => (
+              <PastEventRow key={ev.id} ev={ev} />
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -5,6 +5,7 @@ import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { Fighter, FightLogEntry } from "@/lib/types";
 import { getFighter, ensureFighter, DIVISION_MAP } from "@/lib/data";
 import { overallRating, currentStreak } from "@/lib/engine";
+import { simRecord } from "@/lib/universe";
 import { useApp } from "./AppContext";
 import { FighterAvatar, Flag, DivisionChip, RankBadge, RecordText, WinMethodBar, AttributeBar, OvrBadge } from "./shared";
 import { Crown, MapPin, Users, Ruler, Trophy, Star, Swords, TrendingUp, X, Medal } from "lucide-react";
@@ -73,9 +74,9 @@ function LogRow({ entry, fighter }: { entry: FightLogEntry; fighter: Fighter }) 
           {entry.sim && (
             <span
               className="inline-flex items-center gap-1 rounded border border-[#e5322d]/40 bg-[#e5322d]/10 px-1.5 py-px text-[9px] font-display tracking-widest text-[#ff6b66]"
-              title="Added by a Fight Lab / event simulation"
+              title="Fought on a user-created OCTAGONHQ event"
             >
-              <Swords className="h-2.5 w-2.5" /> FIGHT LAB
+              <Swords className="h-2.5 w-2.5" /> OCTAGONHQ
             </span>
           )}
           {entry.bonus && (
@@ -138,6 +139,7 @@ export function FighterProfileDialog() {
 
   const ovr = overallRating(fighter);
   const streak = currentStreak(fighter);
+  const sim = simRecord(fighter);
 
   return (
     <Dialog open={!!profileId} onOpenChange={(v) => !v && closeProfile()}>
@@ -192,11 +194,19 @@ export function FighterProfileDialog() {
           {/* Record strip */}
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
             <div className="rounded-xl border border-white/10 bg-gradient-to-b from-white/[0.05] to-transparent p-3">
-              <div className="text-[9px] font-display tracking-[0.2em] text-zinc-500">RECORD</div>
+              <div className="text-[9px] font-display tracking-[0.2em] text-zinc-500">UFC RECORD</div>
               <div className="mt-1 font-display text-2xl font-bold text-white num">
                 {fighter.w}-{fighter.l}-{fighter.d}
                 {fighter.nc ? <span className="text-sm text-zinc-500"> · {fighter.nc} NC</span> : null}
               </div>
+              <div className="text-[9px] text-zinc-600">real world · through Oct 17, 2026</div>
+            </div>
+            <div className="rounded-xl border border-[#e0b64c]/25 bg-gradient-to-b from-[#e0b64c]/[0.08] to-transparent p-3">
+              <div className="text-[9px] font-display tracking-[0.2em] text-[#e0b64c]/80">OCTAGONHQ RECORD</div>
+              <div className="mt-1 font-display text-2xl font-bold text-[#e0b64c] num">
+                {sim.w}-{sim.l}-{sim.d}
+              </div>
+              <div className="text-[9px] text-zinc-600">universe events only — everyone starts 0-0</div>
             </div>
             <div className="rounded-xl border border-white/10 bg-gradient-to-b from-white/[0.05] to-transparent p-3">
               <div className="text-[9px] font-display tracking-[0.2em] text-zinc-500">WIN STREAK</div>
@@ -275,7 +285,7 @@ export function FighterProfileDialog() {
             <p className="mt-3 text-[10px] leading-relaxed text-zinc-600">
               {fighter.status === "retired"
                 ? "Complete UFC career on file — every bout with its weight class, method, round & title status. Engine rating is prime-era. Fantasy-book them in the Fight Lab."
-                : "Complete UFC bout history — every fight with its weight class, method, round & title status. Tap any opponent to open their file; anyone not yet in the database gets added on sight."}
+                : "Complete UFC bout history — every fight with its weight class, method, round & title status. OCTAGONHQ-tagged fights happened on your universe events; tap any opponent to open their file."}
             </p>
           </div>
         </div>

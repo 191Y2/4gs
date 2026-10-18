@@ -130,7 +130,8 @@ export function FightLabTab() {
           <Zap className="h-5 w-5 text-[#e0b64c]" /> FIGHT LAB
         </h2>
         <p className="mt-0.5 text-xs text-zinc-500">
-          Book any dream matchup — cross-division superfights allowed. Odds come from Elo math, not overall ratings.
+          Pure exhibition — book any dream matchup and watch the play-by-play. Lab fights never touch records or
+          belts; run real fights on the EVENTS tab to make them count. Odds come from Elo math, not overall ratings.
         </p>
       </div>
 

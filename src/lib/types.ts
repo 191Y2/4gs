@@ -46,6 +46,9 @@ export interface Fighter {
   style?: string;
   w: number; l: number; d: number; nc?: number;
   ko: number; sub: number; dec: number; // win method split
+  // OCTAGONHQ universe record — ONLY event fights in the simulator count.
+  // Everyone starts 0-0; Fight Lab bookings never touch these.
+  simW?: number; simL?: number; simD?: number;
   elo: number;         // curated engine rating
   status?: "active" | "retired"; // retired = legends & vets no longer fighting
   legend?: boolean;    // Hall-of-Fame icon badge
@@ -73,7 +76,8 @@ export interface BoutOdds {
 
 export interface SimRound {
   round: number;
-  text: string;
+  text: string;         // compact summary (fallback)
+  beats: string[];      // play-by-play lines revealed slowly in the sim dialog
   aLanded: number;
   bLanded: number;
   finish?: string; // finish narration if fight ends this round
@@ -132,4 +136,36 @@ export interface FightEvent {
   broadcaster: string;
   bouts: EventBout[];
   status: "upcoming" | "completed";
+}
+
+// ============ OCTAGONHQ UNIVERSE — user-created events ============
+export type EventSection = "main" | "prelim" | "early";
+
+export interface SimEventBout {
+  id: string;
+  aId: string;
+  bId: string;
+  section: EventSection;      // main card / prelims / early prelims
+  order: number;              // position within its section (0 = top)
+  rounds: 3 | 5;
+  title?: boolean;            // championship bout (auto: reigning champ involved)
+  result?: {
+    winner: "A" | "B" | "DRAW" | "NC";
+    method: WinMethod;
+    detail?: string;
+    round: number;
+    time: string;
+  } | null;
+}
+
+export interface SimEvent {
+  id: string;
+  type: "numbered" | "fightnight"; // numbered = UFC 334+ (one per month max)
+  number?: number;                 // 334, 335, …
+  dateISO: string;                 // the Saturday of fight week "2026-10-17"
+  venue: string;
+  city: string;
+  bouts: SimEventBout[];
+  completed: boolean;
+  createdAt: number;
 }
