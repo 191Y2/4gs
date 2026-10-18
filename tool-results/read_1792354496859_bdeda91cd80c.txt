@@ -1,0 +1,798 @@
+     1→"use client";
+     2→
+     3→import { useState } from "react";
+     4→import { motion } from "framer-motion";
+     5→import { toast } from "sonner";
+     6→import { getFighter } from "@/lib/data";
+     7→import { computeOdds, fmtOdds, simulateFight, resultSummary, SimResult } from "@/lib/engine";
+     8→import { useBetStore } from "@/lib/store";
+     9→import { Fighter, SimEvent, SimEventBout, EventSection } from "@/lib/types";
+    10→import {
+    11→  addBout,
+    12→  autoEventType,
+    13→  boutSectionLabel,
+    14→  createEvent,
+    15→  currentSaturday,
+    16→  currentWeekEvent,
+    17→  eventBouts,
+    18→  eventDisplayName,
+    19→  eventTagline,
+    20→  events,
+    21→  isoOf,
+    22→  isTitleBout,
+    23→  moveBout,
+    24→  nextEventNumber,
+    25→  nextFightNightNumber,
+    26→  numberedAvailableThisMonth,
+    27→  pastEvents,
+    28→  prettyDate,
+    29→  recordEventBout,
+    30→  removeBout,
+    31→  scrapEvent,
+    32→  shortDate,
+    33→  simRecord,
+    34→  upcomingWeeks,
+    35→  useUniverseVersion,
+    36→} from "@/lib/universe";
+    37→import { BoutSpec, useApp } from "./AppContext";
+    38→import { FighterPickerDialog } from "./FighterPicker";
+    39→import { FighterAvatar, RecordText, OddsChip } from "./shared";
+    40→import { Button } from "@/components/ui/button";
+    41→import {
+    42→  CalendarDays, Plus, Play, Eye, ChevronUp, ChevronDown, X, Crown,
+    43→  Tv, Dices, MapPin, Radio, Check, Trophy,
+    44→} from "lucide-react";
+    45→
+    46→// ---------- helpers ----------
+    47→function fmtSimRecord(f: Fighter): string {
+    48→  const s = simRecord(f);
+    49→  return `${s.w}-${s.l}-${s.d}`;
+    50→}
+    51→
+    52→function methodText(res: NonNullable<SimEventBout["result"]>): string {
+    53→  const base =
+    54→    res.method === "KO" ? `KO/TKO${res.detail ? ` (${res.detail})` : ""}` :
+    55→    res.method === "SUB" ? `SUB${res.detail ? ` (${res.detail})` : ""}` :
+    56→    res.method === "UDEC" ? "Unanimous Dec" :
+    57→    res.method === "SDEC" ? "Split Dec" :
+    58→    res.method === "MDEC" ? "Majority Dec" : "DQ";
+    59→  return res.method === "KO" || res.method === "SUB" ? `${base} · R${res.round} ${res.time}` : base;
+    60→}
+    61→
+    62→// current + legacy display names — bets placed before a Fight Night got its
+    63→// number still settle under the name they were placed with
+    64→function eventSettleLabels(ev: SimEvent): string[] {
+    65→  const name = eventDisplayName(ev);
+    66→  return ev.legacyName && ev.legacyName !== name ? [name, ev.legacyName] : [name];
+    67→}
+    68→
+    69→// settle any open wallet bets that target this pair under this event
+    70→function settleBetsForBout(aId: string, bId: string, labels: string[], sim: SimResult) {
+    71→  const a = getFighter(aId);
+    72→  const b = getFighter(bId);
+    73→  if (!a || !b) return { won: 0, lost: 0, staked: 0 };
+    74→  const note = resultSummary(sim, a, b);
+    75→  const winnerId = sim.winner === "A" ? aId : sim.winner === "B" ? bId : "";
+    76→  let won = 0;
+    77→  let lost = 0;
+    78→  let staked = 0;
+    79→  for (const bet of useBetStore.getState().bets) {
+    80→    if (bet.status !== "open" || !labels.includes(bet.eventLabel)) continue;
+    81→    if (
+    82→      !((bet.bettorFighterId === aId && bet.opponentId === bId) ||
+    83→        (bet.bettorFighterId === bId && bet.opponentId === aId))
+    84→    ) continue;
+    85→    const isWin = bet.bettorFighterId === winnerId;
+    86→    const payout = bet.stake * (bet.decOdds - 1);
+    87→    useBetStore.getState().settleBet(bet.id, isWin, note, payout);
+    88→    if (isWin) {
+    89→      won++;
+    90→    } else {
+    91→      lost++;
+    92→      staked += bet.stake;
+    93→    }
+    94→  }
+    95→  return { won, lost, staked };
+    96→}
+    97→
+    98→// ---------- bout builder dialog ----------
+    99→function BoutBuilder({
+   100→  eventId,
+   101→  section,
+   102→  excludeIds,
+   103→  onDone,
+   104→}: {
+   105→  eventId: string;
+   106→  section: EventSection;
+   107→  excludeIds: string[];
+   108→  onDone: () => void;
+   109→}) {
+   110→  const [picking, setPicking] = useState<null | "A" | "B">(null);
+   111→  const [a, setA] = useState<Fighter | null>(null);
+   112→  const [b, setB] = useState<Fighter | null>(null);
+   113→
+   114→  const add = () => {
+   115→    if (!a || !b) return;
+   116→    const ok = addBout(eventId, a.id, b.id, section);
+   117→    if (ok) {
+   118→      toast.success(`${a.name} vs ${b.name} added to ${section === "main" ? "the main card" : section === "prelim" ? "prelims" : "early prelims"}`);
+   119→      onDone();
+   120→    } else {
+   121→      toast.error("Those fighters are already booked on this card");
+   122→    }
+   123→  };
+   124→
+   125→  return (
+   126→    <div className="space-y-3">
+   127→      <div className="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-3">
+   128→        <button
+   129→          onClick={() => setPicking("A")}
+   130→          className={`flex h-28 w-full flex-col items-center justify-center gap-1 rounded-xl border p-3 text-center transition-colors ${
+   131→            a ? "border-[#e5322d]/40 bg-[#e5322d]/10" : "border-dashed border-white/15 bg-white/[0.02] hover:border-[#e5322d]/50"
+   132→          }`}
+   133→        >
+   134→          {a ? (
+   135→            <>
+   136→              <span className="truncate font-display text-sm font-bold text-white">{a.name}</span>
+   137→              <span className="text-[10px] text-zinc-500">
+   138→                {fmtSimRecord(a)} HQ · <RecordText fighter={a} /> real
+   139→              </span>
+   140→            </>
+   141→          ) : (
+   142→            <>
+   143→              <Plus className="h-5 w-5 text-zinc-600" />
+   144→              <span className="text-[10px] font-display tracking-widest text-zinc-500">RED CORNER</span>
+   145→            </>
+   146→          )}
+   147→        </button>
+   148→        <span className="font-display text-lg font-black text-[#e0b64c]">VS</span>
+   149→        <button
+   150→          onClick={() => setPicking("B")}
+   151→          className={`flex h-28 w-full flex-col items-center justify-center gap-1 rounded-xl border p-3 text-center transition-colors ${
+   152→            b ? "border-sky-500/40 bg-sky-500/10" : "border-dashed border-white/15 bg-white/[0.02] hover:border-sky-500/50"
+   153→          }`}
+   154→        >
+   155→          {b ? (
+   156→            <>
+   157→              <span className="truncate font-display text-sm font-bold text-white">{b.name}</span>
+   158→              <span className="text-[10px] text-zinc-500">
+   159→                {fmtSimRecord(b)} HQ · <RecordText fighter={b} /> real
+   160→              </span>
+   161→            </>
+   162→          ) : (
+   163→            <>
+   164→              <Plus className="h-5 w-5 text-zinc-600" />
+   165→              <span className="text-[10px] font-display tracking-widest text-zinc-500">BLUE CORNER</span>
+   166→            </>
+   167→          )}
+   168→        </button>
+   169→      </div>
+   170→
+   171→      {a && b && (
+   172→        <div className="rounded-lg border border-white/10 bg-white/[0.03] px-3 py-2 text-center text-[11px] text-zinc-400">
+   173→          {isTitleBout(a, b) ? (
+   174→            <span className="font-display font-bold tracking-widest text-[#e0b64c]">
+   175→              <Crown className="mr-1 inline h-3 w-3" /> CHAMPIONSHIP BOUT — 5 ROUNDS
+   176→            </span>
+   177→          ) : (
+   178→            <span>3 rounds · {fmtOdds(computeOdds(a, b).oddsA)} / {fmtOdds(computeOdds(a, b).oddsB)}</span>
+   179→          )}
+   180→        </div>
+   181→      )}
+   182→
+   183→      <div className="flex gap-2">
+   184→        <Button onClick={add} disabled={!a || !b} className="red-grad flex-1 font-display font-bold tracking-widest text-white hover:opacity-90 disabled:opacity-40">
+   185→          <Plus className="mr-1.5 h-4 w-4" /> ADD BOUT
+   186→        </Button>
+   187→        <Button onClick={onDone} variant="outline" className="border-white/15 bg-white/5 font-display font-bold tracking-widest text-zinc-300 hover:bg-white/10">
+   188→          CANCEL
+   189→        </Button>
+   190→      </div>
+   191→
+   192→      <FighterPickerDialog
+   193→        open={picking !== null}
+   194→        onOpenChange={(v) => !v && setPicking(null)}
+   195→        title={picking === "A" ? "Red Corner" : "Blue Corner"}
+   196→        excludeIds={[...excludeIds, picking === "A" ? b?.id : a?.id].filter(Boolean) as string[]}
+   197→        onSelect={(f) => {
+   198→          if (picking === "A") setA(f);
+   199→          else setB(f);
+   200→          setPicking(null);
+   201→        }}
+   202→      />
+   203→    </div>
+   204→  );
+   205→}
+   206→
+   207→// ---------- one bout row ----------
+   208→function BoutRow({ ev, bout, index }: { ev: SimEvent; bout: SimEventBout; index: number }) {
+   209→  const { openProfile, setSimSpec, setBetSpec } = useApp();
+   210→  const a = getFighter(bout.aId)!;
+   211→  const b = getFighter(bout.bId)!;
+   212→  if (!a || !b) return null;
+   213→  const odds = computeOdds(a, b);
+   214→  const label = eventDisplayName(ev);
+   215→  const fought = !!bout.result;
+   216→  const winner = bout.result?.winner === "A" ? a : bout.result?.winner === "B" ? b : null;
+   217→  const loser = bout.result?.winner === "A" ? b : bout.result?.winner === "B" ? a : null;
+   218→  const isTitle = bout.title || isTitleBout(a, b);
+   219→  const sectionList = eventBouts(ev, bout.section);
+   220→
+   221→  const quickSim = () => {
+   222→    const sim = simulateFight(a, b, bout.rounds);
+   223→    const outcome = recordEventBout(ev.id, bout.id, sim);
+   224→    if (outcome) {
+   225→      toast.success(outcome.note);
+   226→      if (outcome.belt) {
+   227→        toast.success(
+   228→          `NEW CHAMPION! ${outcome.belt.newChamp.name} dethrones ${outcome.belt.oldChamp.name} — the ${outcome.belt.divName} belt changes hands!`,
+   229→          { duration: 7000 }
+   230→        );
+   231→      }
+   232→      settleBetsForBout(a.id, b.id, eventSettleLabels(ev), sim);
+   233→    }
+   234→  };
+   235→
+   236→  const spec: BoutSpec = {
+   237→    aId: a.id,
+   238→    bId: b.id,
+   239→    label,
+   240→    rounds: bout.rounds,
+   241→    source: { eventId: ev.id, boutId: bout.id },
+   242→    title: isTitle ? "Championship Bout" : undefined,
+   243→  };
+   244→
+   245→  return (
+   246→    <div className={`rounded-xl border px-3 py-3 transition-colors ${
+   247→      fought
+   248→        ? "border-white/5 bg-white/[0.015] opacity-80"
+   249→        : isTitle
+   250→          ? "border-[#e0b64c]/30 bg-gradient-to-r from-[#e0b64c]/[0.06] to-transparent"
+   251→          : "border-white/10 bg-white/[0.02]"
+   252→    }`}>
+   253→      <div className="flex items-center justify-between gap-2">
+   254→        <div className="flex items-center gap-1.5">
+   255→          <span className="num font-display text-[10px] font-bold text-zinc-600">{index + 1}</span>
+   256→          <span className={`text-[9px] font-display tracking-[0.2em] ${
+   257→            fought ? "text-zinc-600" : "text-zinc-400"
+   258→          }`}>
+   259→            {boutSectionLabel(ev, bout)}
+   260→          </span>
+   261→          {isTitle && (
+   262→            <span className="inline-flex items-center gap-1 rounded border border-[#e0b64c]/50 bg-[#e0b64c]/10 px-1.5 py-px text-[9px] font-display tracking-widest text-[#e0b64c]">
+   263→              <Crown className="h-2.5 w-2.5" /> TITLE
+   264→            </span>
+   265→          )}
+   266→          {bout.rounds === 5 && !isTitle && (
+   267→            <span className="rounded border border-white/15 bg-white/5 px-1.5 py-px text-[9px] font-display tracking-widest text-zinc-400">5 RDS</span>
+   268→          )}
+   269→        </div>
+   270→        {!fought && (
+   271→          <div className="flex items-center gap-0.5">
+   272→            <button
+   273→              onClick={() => moveBout(ev.id, bout.id, -1)}
+   274→              disabled={index === 0 || !!sectionList[index - 1]?.result}
+   275→              className="rounded p-1 text-zinc-500 transition-colors hover:text-white disabled:opacity-20"
+   276→              title="Move up"
+   277→            >
+   278→              <ChevronUp className="h-3.5 w-3.5" />
+   279→            </button>
+   280→            <button
+   281→              onClick={() => moveBout(ev.id, bout.id, 1)}
+   282→              disabled={index === sectionList.length - 1 || !!sectionList[index + 1]?.result}
+   283→              className="rounded p-1 text-zinc-500 transition-colors hover:text-white disabled:opacity-20"
+   284→              title="Move down"
+   285→            >
+   286→              <ChevronDown className="h-3.5 w-3.5" />
+   287→            </button>
+   288→            <button
+   289→              onClick={() => removeBout(ev.id, bout.id)}
+   290→              className="rounded p-1 text-zinc-500 transition-colors hover:text-[#ff6b66]"
+   291→              title="Remove bout"
+   292→            >
+   293→              <X className="h-3.5 w-3.5" />
+   294→            </button>
+   295→          </div>
+   296→        )}
+   297→      </div>
+   298→
+   299→      <div className="mt-2 grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-2">
+   300→        <button onClick={() => openProfile(a.id)} className="group flex min-w-0 items-center gap-2 text-left">
+   301→          <FighterAvatar fighter={a} size="sm" />
+   302→          <div className="min-w-0">
+   303→            <div className={`truncate text-sm font-semibold group-hover:text-[#ff6b66] ${fought && winner === a ? "text-emerald-400" : "text-zinc-100"}`}>
+   304→              {a.name}
+   305→            </div>
+   306→            <div className="text-[10px] text-zinc-500">
+   307→              <span className="num font-bold text-[#e0b64c]">{fmtSimRecord(a)}</span> HQ · <RecordText fighter={a} />
+   308→            </div>
+   309→          </div>
+   310→        </button>
+   311→        <div className="flex flex-col items-center gap-0.5">
+   312→          {fought && bout.result ? (
+   313→            <span className="num text-[10px] font-bold text-zinc-500">{bout.result.method === "KO" || bout.result.method === "SUB" ? `R${bout.result.round}` : "DEC"}</span>
+   314→          ) : (
+   315→            <OddsChip odds={odds.oddsA} side="A" />
+   316→          )}
+   317→          <span className="font-display text-[10px] font-black text-zinc-600">VS</span>
+   318→          {fought && bout.result ? (
+   319→            <span className="num text-[10px] font-bold text-zinc-500">{bout.result.method === "KO" || bout.result.method === "SUB" ? bout.result.time : "29-28"}</span>
+   320→          ) : (
+   321→            <OddsChip odds={odds.oddsB} side="B" />
+   322→          )}
+   323→        </div>
+   324→        <button onClick={() => openProfile(b.id)} className="group flex min-w-0 flex-row-reverse items-center gap-2 text-right">
+   325→          <FighterAvatar fighter={b} size="sm" />
+   326→          <div className="min-w-0">
+   327→            <div className={`truncate text-sm font-semibold group-hover:text-[#ff6b66] ${fought && winner === b ? "text-emerald-400" : "text-zinc-100"}`}>
+   328→              {b.name}
+   329→            </div>
+   330→            <div className="text-[10px] text-zinc-500">
+   331→              <span className="num font-bold text-[#e0b64c]">{fmtSimRecord(b)}</span> HQ · <RecordText fighter={b} />
+   332→            </div>
+   333→          </div>
+   334→        </button>
+   335→      </div>
+   336→
+   337→      {fought && bout.result && winner && loser ? (
+   338→        <div className="mt-2 flex items-center justify-between rounded-lg border border-white/5 bg-black/30 px-3 py-1.5">
+   339→          <span className="text-[11px] text-zinc-400">
+   340→            <Check className="mr-1 inline h-3 w-3 text-emerald-400" />
+   341→            <span className="font-semibold text-zinc-200">{winner.name}</span> def. {loser.name}
+   342→          </span>
+   343→          <span className="text-[10px] text-zinc-500">{methodText(bout.result)}</span>
+   344→        </div>
+   345→      ) : (
+   346→        <div className="mt-2 flex flex-wrap gap-1.5">
+   347→          <Button
+   348→            size="sm"
+   349→            onClick={() => setSimSpec(spec)}
+   350→            className="red-grad h-8 font-display text-[10px] font-bold tracking-widest text-white hover:opacity-90"
+   351→          >
+   352→            <Eye className="mr-1 h-3 w-3" /> WATCH LIVE
+   353→          </Button>
+   354→          <Button
+   355→            size="sm"
+   356→            variant="outline"
+   357→            onClick={quickSim}
+   358→            className="h-8 border-white/15 bg-white/5 font-display text-[10px] font-bold tracking-widest text-zinc-300 hover:bg-white/10"
+   359→          >
+   360→            <Play className="mr-1 h-3 w-3" /> QUICK SIM
+   361→          </Button>
+   362→          <Button
+   363→            size="sm"
+   364→            variant="outline"
+   365→            onClick={() => setBetSpec({ spec, side: "A" })}
+   366→            className="h-8 border-[#e0b64c]/40 bg-[#e0b64c]/10 font-display text-[10px] font-bold tracking-widest text-[#e0b64c] hover:bg-[#e0b64c]/20"
+   367→          >
+   368→            ${fmtOdds(odds.oddsA)}
+   369→          </Button>
+   370→          <Button
+   371→            size="sm"
+   372→            variant="outline"
+   373→            onClick={() => setBetSpec({ spec, side: "B" })}
+   374→            className="h-8 border-[#e0b64c]/40 bg-[#e0b64c]/10 font-display text-[10px] font-bold tracking-widest text-[#e0b64c] hover:bg-[#e0b64c]/20"
+   375→          >
+   376→            ${fmtOdds(odds.oddsB)}
+   377→          </Button>
+   378→        </div>
+   379→      )}
+   380→    </div>
+   381→  );
+   382→}
+   383→
+   384→// ---------- event card ----------
+   385→function SectionBlock({ ev, section }: { ev: SimEvent; section: EventSection }) {
+   386→  const [building, setBuilding] = useState(false);
+   387→  const bouts = eventBouts(ev, section);
+   388→  const title = section === "main" ? "MAIN CARD" : section === "prelim" ? "PRELIMS" : "EARLY PRELIMS";
+   389→  const subtitle =
+   390→    section === "main" ? "Top bout = main event · second = co-main" : section === "prelim" ? "Fueling the PPV warm-up" : "First through the curtain";
+   391→
+   392→  return (
+   393→    <div>
+   394→      <div className="mb-2 flex items-center justify-between">
+   395→        <div>
+   396→          <h4 className="font-display text-xs font-bold tracking-[0.2em] text-zinc-300">{title}</h4>
+   397→          <p className="text-[9px] text-zinc-600">{subtitle}</p>
+   398→        </div>
+   399→        {!ev.completed && (
+   400→          <button
+   401→            onClick={() => setBuilding(true)}
+   402→            className="flex items-center gap-1 rounded-lg border border-dashed border-white/20 bg-white/[0.02] px-2.5 py-1 text-[10px] font-display font-bold tracking-widest text-zinc-400 transition-colors hover:border-[#e5322d]/50 hover:text-white"
+   403→          >
+   404→            <Plus className="h-3 w-3" /> ADD BOUT
+   405→          </button>
+   406→        )}
+   407→      </div>
+   408→
+   409→      {building && (
+   410→        <div className="mb-3 rounded-xl border border-white/10 bg-black/40 p-3">
+   411→          <BoutBuilder
+   412→            eventId={ev.id}
+   413→            section={section}
+   414→            excludeIds={ev.bouts.flatMap((b) => [b.aId, b.bId])}
+   415→            onDone={() => setBuilding(false)}
+   416→          />
+   417→        </div>
+   418→      )}
+   419→
+   420→      <div className="space-y-2">
+   421→        {bouts.map((bout, i) => (
+   422→          <BoutRow key={bout.id} ev={ev} bout={bout} index={i} />
+   423→        ))}
+   424→        {bouts.length === 0 && !building && (
+   425→          <div className="rounded-xl border border-dashed border-white/10 py-5 text-center">
+   426→            <p className="text-[10px] font-display tracking-widest text-zinc-600">NO BOUTS YET</p>
+   427→          </div>
+   428→        )}
+   429→      </div>
+   430→    </div>
+   431→  );
+   432→}
+   433→
+   434→function EventCard({ ev }: { ev: SimEvent }) {
+   435→  const { setSimSpec } = useApp();
+   436→  const { bets } = useBetStore();
+   437→  const name = eventDisplayName(ev);
+   438→  const tagline = eventTagline(ev);
+   439→  const pending = ev.bouts.filter((b) => !b.result);
+   440→  const openBetsCount = bets.filter(
+   441→    (b) => b.status === "open" && b.eventLabel === name
+   442→  ).length;
+   443→
+   444→  const runFullCard = () => {
+   445→    if (pending.length === 0) return;
+   446→    // broadcast order: early prelims → prelims → main card
+   447→    const order: EventSection[] = ["early", "prelim", "main"];
+   448→    let won = 0;
+   449→    let lost = 0;
+   450→    let staked = 0;
+   451→    let belts = 0;
+   452→    for (const section of order) {
+   453→      for (const bout of eventBouts(ev, section)) {
+   454→        if (bout.result) continue;
+   455→        const a = getFighter(bout.aId)!;
+   456→        const b = getFighter(bout.bId)!;
+   457→        if (!a || !b) continue;
+   458→        const sim = simulateFight(a, b, bout.rounds);
+   459→        const outcome = recordEventBout(ev.id, bout.id, sim);
+   460→        if (outcome) {
+   461→          if (outcome.belt) {
+   462→            belts++;
+   463→            toast.success(
+   464→              `NEW CHAMPION! ${outcome.belt.newChamp.name} dethrones ${outcome.belt.oldChamp.name} — the ${outcome.belt.divName} belt changes hands!`,
+   465→              { duration: 7000 }
+   466→            );
+   467→          }
+   468→          const s = settleBetsForBout(a.id, b.id, eventSettleLabels(ev), sim);
+   469→          won += s.won;
+   470→          lost += s.lost;
+   471→          staked += s.staked;
+   472→        }
+   473→      }
+   474→    }
+   475→    toast.success(
+   476→      ev.completed
+   477→        ? `${name} is in the books — records, rankings & titles updated. Next fight week ${prettyDate(isoOf(currentSaturday()))} unlocked.`
+   478→        : `${name}: every fightable bout is in the books.`,
+   479→      { duration: 6000 }
+   480→    );
+   481→    if (won + lost > 0) {
+   482→      if (won > 0) toast.success(`Event bets: ${won}W-${lost}L`);
+   483→      else toast.error(`Event bets: 0W-${lost}L · −$${staked.toFixed(2)}`);
+   484→    }
+   485→  };
+   486→
+   487→  const mainBout = eventBouts(ev, "main")[0];
+   488→
+   489→  return (
+   490→    <motion.section
+   491→      initial={{ opacity: 0, y: 14 }}
+   492→      animate={{ opacity: 1, y: 0 }}
+   493→      className="overflow-hidden rounded-2xl border border-white/10 bg-white/[0.015]"
+   494→    >
+   495→      <div className="relative border-b border-white/10 px-4 py-4 sm:px-5">
+   496→        <div className="absolute inset-x-0 top-0 h-0.5 red-grad" />
+   497→        <div className="flex flex-wrap items-start justify-between gap-3">
+   498→          <div>
+   499→            <div className="flex flex-wrap items-center gap-2">
+   500→              {ev.type === "numbered" ? (
+   501→                <span className="rounded-full border border-[#e0b64c]/50 bg-[#e0b64c]/10 px-2.5 py-0.5 font-display text-[10px] font-bold tracking-widest text-[#e0b64c]">
+   502→                  UFC {ev.number}
+   503→                </span>
+   504→              ) : (
+   505→                <span className="rounded-full border border-sky-500/40 bg-sky-500/10 px-2.5 py-0.5 font-display text-[10px] font-bold tracking-widest text-sky-400">
+   506→                  FIGHT NIGHT{ev.number ? ` ${ev.number}` : ""}
+   507→                </span>
+   508→              )}
+   509→              {ev.completed ? (
+   510→                <span className="rounded-full border border-emerald-500/40 bg-emerald-500/10 px-2.5 py-0.5 font-display text-[10px] font-bold tracking-widest text-emerald-400">
+   511→                  <Check className="mr-1 inline h-2.5 w-2.5" /> COMPLETED
+   512→                </span>
+   513→              ) : (
+   514→                <span className="flex items-center gap-1 rounded-full border border-[#e5322d]/40 bg-[#e5322d]/10 px-2.5 py-0.5 font-display text-[10px] font-bold tracking-widest text-[#ff6b66]">
+   515→                  <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-[#e5322d]" /> THIS SATURDAY
+   516→                </span>
+   517→              )}
+   518→            </div>
+   519→            <h3 className="mt-1.5 font-display text-2xl font-bold text-white">
+   520→              {name}
+   521→              {tagline && <span className="ml-2 text-base font-semibold text-zinc-500">· {tagline}</span>}
+   522→            </h3>
+   523→            <p className="mt-0.5 flex items-center gap-1.5 text-[11px] text-zinc-500">
+   524→              <CalendarDays className="h-3 w-3" /> {prettyDate(ev.dateISO)}
+   525→              <span className="text-zinc-700">·</span>
+   526→              <MapPin className="h-3 w-3" /> {ev.venue}, {ev.city}
+   527→              <span className="text-zinc-700">·</span>
+   528→              <Tv className="h-3 w-3" /> {ev.type === "numbered" ? "PPV MAIN" : "ESPN+"}
+   529→            </p>
+   530→          </div>
+   531→          <div className="text-right">
+   532→            <div className="num font-display text-2xl font-bold text-white">{ev.bouts.length}</div>
+   533→            <div className="text-[9px] font-display tracking-widest text-zinc-500">BOUTS BOOKED</div>
+   534→            {!ev.completed && ev.bouts.every((b) => !b.result) && (
+   535→              <button
+   536→                onClick={() => {
+   537→                  if (scrapEvent(ev.id)) {
+   538→                    toast.success(`Card scrapped — fight week ${prettyDate(isoOf(currentSaturday()))} is open again.`);
+   539→                  }
+   540→                }}
+   541→                className="mt-1.5 text-[9px] font-display tracking-widest text-zinc-600 transition-colors hover:text-[#ff6b66]"
+   542→                title="Nothing fought yet — scrap this card and re-book the week"
+   543→              >
+   544→                SCRAP CARD
+   545→              </button>
+   546→            )}
+   547→          </div>
+   548→        </div>
+   549→
+   550→        {pending.length > 0 && (
+   551→          <Button
+   552→            onClick={runFullCard}
+   553→            className="red-grad mt-4 h-11 w-full font-display font-sm font-bold tracking-widest text-white hover:opacity-90 sm:w-auto sm:px-8"
+   554→          >
+   555→            <Play className="mr-2 h-4 w-4" /> RUN FULL CARD ({pending.length})
+   556→          </Button>
+   557→        )}
+   558→        {pending.length === 0 && ev.bouts.length > 0 && (
+   559→          <p className="mt-3 text-[10px] text-zinc-500">
+   560→            Every bout is in the books — records, rankings and championship lineage updated.
+   561→            {openBetsCount > 0 && ` ${openBetsCount} open bet${openBetsCount > 1 ? "s" : ""} on this event.`}
+   562→          </p>
+   563→        )}
+   564→        {ev.bouts.length === 0 && (
+   565→          <p className="mt-3 text-[10px] text-zinc-500">Card is empty — add a main event, prelims and early prelims below.</p>
+   566→        )}
+   567→        {mainBout && !mainBout.result && (
+   568→          <button
+   569→            onClick={() =>
+   570→              setSimSpec({
+   571→                aId: mainBout.aId,
+   572→                bId: mainBout.bId,
+   573→                label: name,
+   574→                rounds: mainBout.rounds,
+   575→                source: { eventId: ev.id, boutId: mainBout.id },
+   576→              })
+   577→            }
+   578→            className="mt-3 flex w-full items-center justify-between rounded-xl border border-[#e5322d]/30 bg-gradient-to-r from-[#e5322d]/[0.08] to-transparent px-4 py-3 text-left transition-colors hover:border-[#e5322d]/60"
+   579→          >
+   580→            <div className="flex items-center gap-2">
+   581→              <Radio className="h-4 w-4 text-[#e5322d]" />
+   582→              <div>
+   583→                <div className="text-[9px] font-display tracking-[0.2em] text-[#ff6b66]">MAIN EVENT — WATCH LIVE</div>
+   584→                <div className="text-sm font-semibold text-zinc-200">
+   585→                  {getFighter(mainBout.aId)?.name} vs {getFighter(mainBout.bId)?.name}
+   586→                </div>
+   587→              </div>
+   588→            </div>
+   589→            <Eye className="h-4 w-4 text-zinc-500" />
+   590→          </button>
+   591→        )}
+   592→      </div>
+   593→
+   594→      <div className="space-y-5 px-4 py-4 sm:px-5">
+   595→        <SectionBlock ev={ev} section="main" />
+   596→        <SectionBlock ev={ev} section="prelim" />
+   597→        <SectionBlock ev={ev} section="early" />
+   598→      </div>
+   599→    </motion.section>
+   600→  );
+   601→}
+   602→
+   603→// ---------- past event row ----------
+   604→function PastEventRow({ ev }: { ev: SimEvent }) {
+   605→  const [open, setOpen] = useState(false);
+   606→  const name = eventDisplayName(ev);
+   607→  const mainBout = eventBouts(ev, "main")[0];
+   608→  const mainA = mainBout ? getFighter(mainBout.aId) : null;
+   609→  const mainB = mainBout ? getFighter(mainBout.bId) : null;
+   610→  const mainWin = mainBout?.result
+   611→    ? mainBout.result.winner === "A" ? mainA : mainBout.result.winner === "B" ? mainB : null
+   612→    : null;
+   613→
+   614→  return (
+   615→    <div className="overflow-hidden rounded-xl border border-white/10 bg-white/[0.015]">
+   616→      <button onClick={() => setOpen(!open)} className="flex w-full items-center gap-3 px-3.5 py-3 text-left transition-colors hover:bg-white/[0.03]">
+   617→        <div className="min-w-0 flex-1">
+   618→          <div className="flex items-center gap-2">
+   619→            <span className={`text-[9px] font-display font-bold tracking-widest ${ev.type === "numbered" ? "text-[#e0b64c]" : "text-sky-400"}`}>
+   620→              {ev.type === "numbered" ? `UFC ${ev.number}` : `FIGHT NIGHT${ev.number ? ` ${ev.number}` : ""}`}
+   621→            </span>
+   622→            <span className="num text-[10px] text-zinc-600">{prettyDate(ev.dateISO)}</span>
+   623→          </div>
+   624→          <div className="truncate font-display text-sm font-bold text-white">{name}</div>
+   625→          {mainWin && mainA && mainB && (
+   626→            <div className="truncate text-[10px] text-zinc-500">
+   627→              {mainWin.name} def. {mainWin === mainA ? mainB.name : mainA.name}
+   628→              {mainBout?.result && ` · ${methodText(mainBout.result)}`}
+   629→            </div>
+   630→          )}
+   631→        </div>
+   632→        <Trophy className="h-4 w-4 shrink-0 text-zinc-600" />
+   633→        <ChevronDown className={`h-4 w-4 shrink-0 text-zinc-600 transition-transform ${open ? "" : "-rotate-90"}`} />
+   634→      </button>
+   635→      {open && (
+   636→        <div className="space-y-1.5 border-t border-white/5 px-3.5 py-3">
+   637→          {(["early", "prelim", "main"] as EventSection[]).flatMap((section) =>
+   638→            eventBouts(ev, section).map((bout) => {
+   639→              const a = getFighter(bout.aId);
+   640→              const b = getFighter(bout.bId);
+   641→              if (!a || !b || !bout.result) return null;
+   642→              const w = bout.result.winner === "A" ? a : bout.result.winner === "B" ? b : null;
+   643→              return (
+   644→                <div key={bout.id} className="flex items-center justify-between gap-2 rounded-lg bg-white/[0.02] px-2.5 py-1.5 text-[11px]">
+   645→                  <span className="shrink-0 text-[8px] font-display tracking-widest text-zinc-600">
+   646→                    {boutSectionLabel(ev, bout)}
+   647→                  </span>
+   648→                  <span className="min-w-0 flex-1 truncate text-zinc-400">
+   649→                    <span className="font-semibold text-zinc-200">{w ? w.name : "Draw"}</span>
+   650→                    {w ? ` def. ${w === a ? b.name : a.name}` : ` — ${a.name} vs ${b.name}`}
+   651→                  </span>
+   652→                  <span className="shrink-0 text-[10px] text-zinc-500">{methodText(bout.result)}</span>
+   653→                </div>
+   654→              );
+   655→            })
+   656→          )}
+   657→        </div>
+   658→      )}
+   659→    </div>
+   660→  );
+   661→}
+   662→
+   663→// ---------- the tab ----------
+   664→export function EventsTab() {
+   665→  useUniverseVersion();
+   666→  const week = currentSaturday();
+   667→  const weekIso = isoOf(week);
+   668→  const current = currentWeekEvent();
+   669→  const past = pastEvents();
+   670→  const all = events();
+   671→  const numberedOk = numberedAvailableThisMonth(weekIso);
+   672→  const nextNum = nextEventNumber();
+   673→  const nextFN = nextFightNightNumber();
+   674→  const auto = autoEventType(weekIso);
+   675→  const road = upcomingWeeks(6);
+   676→  const totalBouts = all.reduce((s, e) => s + e.bouts.length, 0);
+   677→
+   678→  const create = (type?: "numbered" | "fightnight") => {
+   679→    const res = createEvent(type);
+   680→    if (!res.ok && res.reason) toast.error(res.reason);
+   681→    else if (res.event) toast.success(`${eventDisplayName(res.event)} created — ${prettyDate(res.event.dateISO)} at ${res.event.venue}`);
+   682→  };
+   683→
+   684→  return (
+   685→    <div className="space-y-4 pb-8">
+   686→      <div className="flex flex-wrap items-end justify-between gap-3">
+   687→        <div>
+   688→          <h2 className="flex items-center gap-2 font-display text-2xl font-bold text-white">
+   689→            <CalendarDays className="h-5 w-5 text-[#e5322d]" /> UNIVERSE EVENT CENTER
+   690→          </h2>
+   691→          <p className="mt-0.5 text-xs text-zinc-500">
+   692→            One card every Saturday — finish a card and the next fight week unlocks instantly, forever · results update records, rankings & titles
+   693→          </p>
+   694→        </div>
+   695→        <div className="flex gap-3 text-center">
+   696→          <div className="rounded-lg border border-white/10 bg-white/[0.02] px-3 py-1.5">
+   697→            <div className="num font-display text-lg font-bold text-white">{all.length}</div>
+   698→            <div className="text-[8px] font-display tracking-widest text-zinc-500">EVENTS</div>
+   699→          </div>
+   700→          <div className="rounded-lg border border-white/10 bg-white/[0.02] px-3 py-1.5">
+   701→            <div className="num font-display text-lg font-bold text-white">{totalBouts}</div>
+   702→            <div className="text-[8px] font-display tracking-widest text-zinc-500">FOUGHT</div>
+   703→          </div>
+   704→        </div>
+   705→      </div>
+   706→
+   707→      {/* current week */}
+   708→      {current ? (
+   709→        <EventCard ev={current} />
+   710→      ) : (
+   711→        <div className="rounded-2xl border border-dashed border-white/15 bg-white/[0.01] px-5 py-8 text-center">
+   712→          <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full border border-white/10 bg-white/5">
+   713→            <CalendarDays className="h-6 w-6 text-zinc-500" />
+   714→          </div>
+   715→          <h3 className="mt-3 font-display text-lg font-bold text-white">NO EVENT THIS WEEK</h3>
+   716→          <p className="mx-auto mt-1 max-w-md text-xs leading-relaxed text-zinc-500">
+   717→            Fight week of <span className="font-semibold text-zinc-300">{prettyDate(isoOf(week))}</span> is open —
+   718→            Saturday night is dark. Book a card and every bout on it counts toward the fighters' OCTAGONHQ records.
+   719→          </p>
+   720→          <div className="mt-5 flex flex-wrap items-center justify-center gap-2">
+   721→            {auto === "numbered" ? (
+   722→              <>
+   723→                <Button onClick={() => create()} className="red-grad h-12 px-8 font-display font-bold tracking-widest text-white hover:opacity-90">
+   724→                  <Dices className="mr-2 h-4 w-4" /> CREATE UFC {nextNum}
+   725→                </Button>
+   726→                <Button
+   727→                  onClick={() => create("fightnight")}
+   728→                  variant="outline"
+   729→                  className="h-12 border-sky-500/40 bg-sky-500/10 font-display font-bold tracking-widest text-sky-400 hover:bg-sky-500/20"
+   730→                >
+   731→                  CREATE FIGHT NIGHT {nextFN}
+   732→                </Button>
+   733→              </>
+   734→            ) : (
+   735→              <>
+   736→                <Button
+   737→                  onClick={() => create()}
+   738→                  className="h-12 border-sky-500/40 bg-sky-500/10 px-8 font-display font-bold tracking-widest text-sky-400 hover:bg-sky-500/20"
+   739→                >
+   740→                  <Dices className="mr-2 h-4 w-4" /> CREATE FIGHT NIGHT {nextFN}
+   741→                </Button>
+   742→                {numberedOk && (
+   743→                  <Button
+   744→                    onClick={() => create("numbered")}
+   745→                    className="red-grad h-12 px-8 font-display font-bold tracking-widest text-white hover:opacity-90"
+   746→                  >
+   747→                    CREATE UFC {nextNum}
+   748→                  </Button>
+   749→                )}
+   750→              </>
+   751→            )}
+   752→          </div>
+   753→          <p className="mt-3 text-[10px] text-zinc-600">
+   754→            {numberedOk
+   755→              ? "One numbered event per month — Fight Nights fill the other Saturdays."
+   756→              : "A numbered event already ran this month — this Saturday is a Fight Night."}
+   757→          </p>
+   758→
+   759→          {/* the road ahead — the infinite Saturday schedule */}
+   760→          <div className="mx-auto mt-6 max-w-2xl">
+   761→            <div className="text-[9px] font-display tracking-[0.25em] text-zinc-600">
+   762→              THE ROAD AHEAD — A CARD EVERY SATURDAY, FOREVER
+   763→            </div>
+   764→            <div className="mt-2 flex flex-wrap justify-center gap-1.5">
+   765→              {road.map((s) => (
+   766→                <div
+   767→                  key={s.iso}
+   768→                  className={`rounded-lg border px-2.5 py-1.5 text-center ${
+   769→                    s.type === "numbered" ? "border-[#e0b64c]/30 bg-[#e0b64c]/[0.06]" : "border-sky-500/20 bg-sky-500/[0.04]"
+   770→                  }`}
+   771→                >
+   772→                  <div className="num text-[9px] text-zinc-500">{shortDate(s.iso)}</div>
+   773→                  <div className={`text-[10px] font-display font-bold ${s.type === "numbered" ? "text-[#e0b64c]" : "text-sky-400"}`}>
+   774→                    {s.name}
+   775→                  </div>
+   776→                </div>
+   777→              ))}
+   778→            </div>
+   779→            <p className="mt-2 text-[9px] text-zinc-600">Auto-scheduled — override any week when you create its card.</p>
+   780→          </div>
+   781→        </div>
+   782→      )}
+   783→
+   784→      {/* past events */}
+   785→      {past.length > 0 && (
+   786→        <div>
+   787→          <h3 className="mb-2 font-display text-sm font-bold tracking-wider text-zinc-300">EVENT HISTORY</h3>
+   788→          <div className="space-y-2">
+   789→            {past.map((ev) => (
+   790→              <PastEventRow key={ev.id} ev={ev} />
+   791→            ))}
+   792→          </div>
+   793→        </div>
+   794→      )}
+   795→    </div>
+   796→  );
+   797→}
+   798→

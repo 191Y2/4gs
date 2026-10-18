@@ -18,6 +18,7 @@ import {
   eventDisplayName,
   eventTagline,
   events,
+  hqRankLabel,
   isoOf,
   isTitleBout,
   moveBout,
@@ -47,6 +48,30 @@ import {
 function fmtSimRecord(f: Fighter): string {
   const s = simRecord(f);
   return `${s.w}-${s.l}-${s.d}`;
+}
+
+// ---------- OCTAGONHQ rank tag shown next to names on cards ----------
+function RankTag({ fighterId }: { fighterId: string }) {
+  const label = hqRankLabel(fighterId);
+  if (label === "C") {
+    return (
+      <span className="inline-flex shrink-0 items-center gap-0.5 rounded border border-[#e0b64c]/60 bg-[#e0b64c]/15 px-1 py-px text-[9px] font-display font-bold tracking-widest text-[#e0b64c]">
+        <Crown className="h-2.5 w-2.5" />C
+      </span>
+    );
+  }
+  if (label === "UNRANKED") {
+    return (
+      <span className="inline-flex shrink-0 items-center rounded border border-white/10 bg-white/[0.03] px-1 py-px text-[9px] font-display tracking-widest text-zinc-500">
+        UNRANKED
+      </span>
+    );
+  }
+  return (
+    <span className="num inline-flex shrink-0 items-center rounded border border-white/15 bg-white/5 px-1 py-px text-[9px] font-bold text-zinc-300">
+      {label}
+    </span>
+  );
 }
 
 function methodText(res: NonNullable<SimEventBout["result"]>): string {
@@ -133,7 +158,10 @@ function BoutBuilder({
         >
           {a ? (
             <>
-              <span className="truncate font-display text-sm font-bold text-white">{a.name}</span>
+              <span className="flex min-w-0 items-center justify-center gap-1.5">
+                <RankTag fighterId={a.id} />
+                <span className="truncate font-display text-sm font-bold text-white">{a.name}</span>
+              </span>
               <span className="text-[10px] text-zinc-500">
                 {fmtSimRecord(a)} HQ · <RecordText fighter={a} /> real
               </span>
@@ -154,7 +182,10 @@ function BoutBuilder({
         >
           {b ? (
             <>
-              <span className="truncate font-display text-sm font-bold text-white">{b.name}</span>
+              <span className="flex min-w-0 items-center justify-center gap-1.5">
+                <RankTag fighterId={b.id} />
+                <span className="truncate font-display text-sm font-bold text-white">{b.name}</span>
+              </span>
               <span className="text-[10px] text-zinc-500">
                 {fmtSimRecord(b)} HQ · <RecordText fighter={b} /> real
               </span>
@@ -300,8 +331,11 @@ function BoutRow({ ev, bout, index }: { ev: SimEvent; bout: SimEventBout; index:
         <button onClick={() => openProfile(a.id)} className="group flex min-w-0 items-center gap-2 text-left">
           <FighterAvatar fighter={a} size="sm" />
           <div className="min-w-0">
-            <div className={`truncate text-sm font-semibold group-hover:text-[#ff6b66] ${fought && winner === a ? "text-emerald-400" : "text-zinc-100"}`}>
-              {a.name}
+            <div className="flex min-w-0 items-center gap-1.5">
+              <RankTag fighterId={a.id} />
+              <span className={`truncate text-sm font-semibold group-hover:text-[#ff6b66] ${fought && winner === a ? "text-emerald-400" : "text-zinc-100"}`}>
+                {a.name}
+              </span>
             </div>
             <div className="text-[10px] text-zinc-500">
               <span className="num font-bold text-[#e0b64c]">{fmtSimRecord(a)}</span> HQ · <RecordText fighter={a} />
@@ -324,8 +358,11 @@ function BoutRow({ ev, bout, index }: { ev: SimEvent; bout: SimEventBout; index:
         <button onClick={() => openProfile(b.id)} className="group flex min-w-0 flex-row-reverse items-center gap-2 text-right">
           <FighterAvatar fighter={b} size="sm" />
           <div className="min-w-0">
-            <div className={`truncate text-sm font-semibold group-hover:text-[#ff6b66] ${fought && winner === b ? "text-emerald-400" : "text-zinc-100"}`}>
-              {b.name}
+            <div className="flex min-w-0 flex-row-reverse items-center justify-end gap-1.5">
+              <RankTag fighterId={b.id} />
+              <span className={`truncate text-sm font-semibold group-hover:text-[#ff6b66] ${fought && winner === b ? "text-emerald-400" : "text-zinc-100"}`}>
+                {b.name}
+              </span>
             </div>
             <div className="text-[10px] text-zinc-500">
               <span className="num font-bold text-[#e0b64c]">{fmtSimRecord(b)}</span> HQ · <RecordText fighter={b} />

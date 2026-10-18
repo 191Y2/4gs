@@ -559,6 +559,17 @@ export function divisionStandings(div: DivisionId): Standing[] {
   return out;
 }
 
+// OCTAGONHQ rank label for a fighter: "C" (champ), "#1".."#15", or "UNRANKED".
+// Mirrors DivisionsTab — only the top 15 contenders are ranked.
+export function hqRankLabel(fighterId: string): string {
+  const f = ROSTER.find((x) => x.id === fighterId);
+  if (!f) return "UNRANKED";
+  if (f.isChampion) return "C";
+  const st = divisionStandings(f.division).find((s) => s.fighter.id === f.id);
+  if (!st || st.rank === "C" || st.rank > 15) return "UNRANKED";
+  return `#${st.rank}`;
+}
+
 // division roster for standings
 function getDivision(div: DivisionId): Fighter[] {
   return ROSTER.filter((f) => f.division === div);

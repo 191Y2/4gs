@@ -130,3 +130,21 @@ Work Log:
 
 Stage Summary:
 - The event calendar is now truly infinite and self-driving: complete any card and the next Saturday unlocks with the correct auto-numbered event (Fight Night counter + UFC counter + one PPV per month), with a visible never-ending schedule strip, stuck-state self-healing, and a scrap-card escape hatch
+
+---
+Task ID: 8
+Agent: main
+Task: Show each fighter's OCTAGONHQ rank (#N / C / UNRANKED) next to their name on event cards (user: "next to every card list the rankings... is the fighter #9 or unranked next to their name in the card")
+
+Work Log:
+- Added hqRankLabel(fighterId) to universe.ts: champion -> "C", top-15 OCTAGONHQ contender -> "#N", everyone else -> "UNRANKED" (mirrors DivisionsTab top-15 convention, driven purely by universe event results)
+- New RankTag chip component in EventsTab.tsx: gold crown "C" chip for champs, neutral "#N" chip for ranked, dim "UNRANKED" chip otherwise; rendered next to BOTH fighters' names in every card BoutRow (red corner: chip before name; blue corner: chip after name, right-aligned mirror) AND in the red/blue corner preview buttons of the add-bout builder
+- Truncation guarded with min-w-0 so long names still ellipsize; chips are shrink-0
+- Tags re-compute live after every simulated bout (BoutRow re-renders via useUniverseVersion)
+- Fixed stale-preview mystery: port 3000 was serving an OLD production standalone build from before the edit (prod server predating the change); rebuilt next build, fresh chunk verified to contain the new chip strings
+- Environment discovery: background processes are reaped between Bash tool calls now — dev/prod servers only live inside a single call; verified the change with a one-shot script (scripts/verify-rank-tags.sh): throwaway dev server on :3100 + agent-browser flow
+- E2E verified: fresh universe -> Fight Night 1 created -> Aspinall (#1) vs Gane (C, HW champ) added to main card -> add-bout previews show "#1 Tom Aspinall" / "C Ciryl Gane" -> bout row on the card shows both chips (count=2 :: #1,C); screenshot rank-tags-check.png
+- tsc clean (src), production build passes
+
+Stage Summary:
+- Event cards now show OCTAGONHQ ranks inline next to every fighter's name (champ crown chip / #1-#15 / UNRANKED), updating live as card results come in
