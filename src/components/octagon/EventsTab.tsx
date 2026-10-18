@@ -3,8 +3,8 @@
 import { useState } from "react";
 import { motion } from "framer-motion";
 import { toast } from "sonner";
-import { getFighter } from "@/lib/data";
-import { computeOdds, fmtOdds, simulateFight, resultSummary, SimResult } from "@/lib/engine";
+import { getFighter, DIVISION_MAP } from "@/lib/data";
+import { computeOdds, fmtOdds, overallRating, simulateFight, resultSummary, SimResult } from "@/lib/engine";
 import { useBetStore } from "@/lib/store";
 import { Fighter, SimEvent, SimEventBout, EventSection } from "@/lib/types";
 import {
@@ -41,7 +41,7 @@ import { FighterAvatar, RecordText, OddsChip } from "./shared";
 import { Button } from "@/components/ui/button";
 import {
   CalendarDays, Plus, Play, Eye, ChevronUp, ChevronDown, X, Crown,
-  Tv, Dices, MapPin, Radio, Check, Trophy,
+  Tv, Dices, MapPin, Radio, Check, Trophy, Copy,
 } from "lucide-react";
 
 // ---------- helpers ----------
@@ -72,6 +72,88 @@ function RankTag({ fighterId }: { fighterId: string }) {
       {label}
     </span>
   );
+}
+
+// ---------- COPY CARD: full card as clean text (for ChatGPT etc.) ----------
+function fighterLine(f: Fighter): string {
+  const s = simRecord(f);
+  const rank = hqRankLabel(f.id);
+  const div = DIVISION_MAP[f.division];
+  const rankTxt = rank === "C" ? `${div.shortName} CHAMP` : rank === "UNRANKED" ? "unranked" : `${rank} ${div.shortName}`;
+  return `${f.name} — ${rankTxt} · ${s.w}-${s.l}-${s.d} HQ · ${f.w}-${f.l}-${f.d} real · ${overallRating(f)} OVR`;
+}
+
+function resultLine(bout: SimEventBout): string {
+  const r = bout.result!;
+  const a = getFighter(bout.aId)!;
+  const b = getFighter(bout.bId)!;
+  if (r.winner === "DRAW" || r.winner === "NC") {
+    return `Result: ${r.winner === "DRAW" ? "Draw" : "No Contest"} (${methodText(r)})`;
+  }
+  const w = r.winner === "A" ? a : b;
+  return `Result: ${w.name} def. ${(r.winner === "A" ? b : a).name} — ${methodText(r)}`;
+}
+
+function cardToText(ev: SimEvent): string {
+  const name = eventDisplayName(ev);
+  const tagline = eventTagline(ev);
+  const lines: string[] = [];
+  lines.push(`🥊 ${name}${tagline ? ` · ${tagline}` : ""}`);
+  lines.push(`${prettyDate(ev.dateISO)} · ${ev.venue}, ${ev.city} · ${ev.type === "numbered" ? "PPV" : "ESPN+"}`);
+  lines.push(`OCTAGONHQ universe card — HQ ranks & records are in-universe (everyone started 0-0); real UFC records for context`);
+  const sections: [EventSection, string][] = [
+    ["main", "MAIN CARD"],
+    ["prelim", "PRELIMS"],
+    ["early", "EARLY PRELIMS"],
+  ];
+  let n = 0;
+  for (const [sec, label] of sections) {
+    const bouts = eventBouts(ev, sec);
+    if (!bouts.length) continue;
+    lines.push("");
+    lines.push(`${label}`);
+    for (const bout of bouts) {
+      n++;
+      const a = getFighter(bout.aId)!;
+      const b = getFighter(bout.bId)!;
+      if (!a || !b) continue;
+      const div = DIVISION_MAP[a.division];
+      const odds = computeOdds(a, b);
+      const tags: string[] = [];
+      if (bout.title) tags.push(`${div.name.toUpperCase()} TITLE`);
+      if (bout.rounds === 5 && !bout.title) tags.push("5 RDS");
+      const head = `#${n}. ${tags.length ? `[${tags.join(" · ")}] ` : ""}${a.name} vs ${b.name}`;
+      lines.push(head);
+      lines.push(`   ${fighterLine(a)} · odds ${fmtOdds(odds.oddsA)}`);
+      lines.push(`   ${fighterLine(b)} · odds ${fmtOdds(odds.oddsB)}`);
+      if (bout.result) lines.push(`   ✅ ${resultLine(bout)}`);
+    }
+  }
+  if (n === 0) lines.push("", "(no bouts booked yet)");
+  return lines.join("\n");
+}
+
+async function copyCard(ev: SimEvent) {
+  const text = cardToText(ev);
+  try {
+    await navigator.clipboard.writeText(text);
+    toast.success("Card copied as text — paste it into ChatGPT or anywhere");
+  } catch {
+    // clipboard API fallback
+    try {
+      const ta = document.createElement("textarea");
+      ta.value = text;
+      ta.style.position = "fixed";
+      ta.style.opacity = "0";
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand("copy");
+      document.body.removeChild(ta);
+      toast.success("Card copied as text — paste it into ChatGPT or anywhere");
+    } catch {
+      toast.error("Couldn't copy — clipboard blocked by the browser");
+    }
+  }
 }
 
 function methodText(res: NonNullable<SimEventBout["result"]>): string {
@@ -585,18 +667,38 @@ function EventCard({ ev }: { ev: SimEvent }) {
         </div>
 
         {pending.length > 0 && (
-          <Button
-            onClick={runFullCard}
-            className="red-grad mt-4 h-11 w-full font-display font-sm font-bold tracking-widest text-white hover:opacity-90 sm:w-auto sm:px-8"
-          >
-            <Play className="mr-2 h-4 w-4" /> RUN FULL CARD ({pending.length})
-          </Button>
+          <div className="mt-4 flex flex-col gap-2 sm:flex-row">
+            <Button
+              onClick={runFullCard}
+              className="red-grad h-11 flex-1 font-display font-sm font-bold tracking-widest text-white hover:opacity-90 sm:px-8 sm:flex-none"
+            >
+              <Play className="mr-2 h-4 w-4" /> RUN FULL CARD ({pending.length})
+            </Button>
+            <Button
+              onClick={() => copyCard(ev)}
+              variant="outline"
+              className="h-11 flex-1 border-white/15 bg-white/5 font-display font-bold tracking-widest text-zinc-300 hover:bg-white/10 sm:flex-none"
+              title="Copy the whole card as text — ranks, records, odds — for pasting anywhere"
+            >
+              <Copy className="mr-2 h-4 w-4" /> COPY CARD
+            </Button>
+          </div>
         )}
         {pending.length === 0 && ev.bouts.length > 0 && (
-          <p className="mt-3 text-[10px] text-zinc-500">
-            Every bout is in the books — records, rankings and championship lineage updated.
-            {openBetsCount > 0 && ` ${openBetsCount} open bet${openBetsCount > 1 ? "s" : ""} on this event.`}
-          </p>
+          <div className="mt-3 flex items-center gap-3">
+            <p className="flex-1 text-[10px] text-zinc-500">
+              Every bout is in the books — records, rankings and championship lineage updated.
+              {openBetsCount > 0 && ` ${openBetsCount} open bet${openBetsCount > 1 ? "s" : ""} on this event.`}
+            </p>
+            <Button
+              onClick={() => copyCard(ev)}
+              variant="outline"
+              className="h-8 shrink-0 border-white/15 bg-white/5 px-3 font-display text-[10px] font-bold tracking-widest text-zinc-300 hover:bg-white/10"
+              title="Copy the full card with results as text"
+            >
+              <Copy className="mr-1.5 h-3 w-3" /> COPY CARD
+            </Button>
+          </div>
         )}
         {ev.bouts.length === 0 && (
           <p className="mt-3 text-[10px] text-zinc-500">Card is empty — add a main event, prelims and early prelims below.</p>
@@ -691,6 +793,15 @@ function PastEventRow({ ev }: { ev: SimEvent }) {
               );
             })
           )}
+          <div className="flex justify-end pt-1">
+            <button
+              onClick={() => copyCard(ev)}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-white/15 bg-white/5 px-2.5 py-1.5 text-[9px] font-display font-bold tracking-widest text-zinc-300 transition-colors hover:bg-white/10"
+              title="Copy the full card with results as text"
+            >
+              <Copy className="h-3 w-3" /> COPY CARD
+            </button>
+          </div>
         </div>
       )}
     </div>

@@ -148,3 +148,19 @@ Work Log:
 
 Stage Summary:
 - Event cards now show OCTAGONHQ ranks inline next to every fighter's name (champ crown chip / #1-#15 / UNRANKED), updating live as card results come in
+
+---
+Task ID: 9
+Agent: main
+Task: COPY CARD button — exports the whole event card as clean text (ranks, records, OVR, odds, results) for pasting into ChatGPT (user: "add a copy card button that copies the entire card in nice style like text so I can send it to chatgpt for the bets and ratings of the card")
+
+Work Log:
+- EventsTab.tsx: new cardToText(ev) — header (event name + tagline, date, venue/city, PPV/ESPN+), note that HQ ranks/records are in-universe, then MAIN CARD / PRELIMS / EARLY PRELIMS sections; each bout numbered with [DIVISION TITLE · 5 RDS] tags and two fighter lines: name — rank (e.g. "#1 HW" / "HW CHAMP" / "unranked") · X-X-X HQ · real record · N OVR · american odds; fought bouts get a "✅ Result: X def. Y — method · round/time" line
+- copyCard(ev): navigator.clipboard.writeText with execCommand textarea fallback + toasts; Copy icon from lucide
+- Button placement: (1) next to RUN FULL CARD on the live card (pre-fight, with odds), (2) in the completed-card state, (3) inside each expanded EVENT HISTORY row (completed events roll into history instantly when the card completes, so history is where completed copies happen)
+- Fixed dup bug: resultLine appended ", R3 0:20" while methodText already includes " · R3 0:20" for finishes — removed the duplicate
+- E2E verified with clipboard stub (scripts/verify-copy-card.sh + verify-copy-card2.sh, throwaway dev :3100): pre-fight copy shows full card incl. auto-booked Aspinall vs Gane title bout with odds; completed-history copy shows updated HQ records (Gane 1-0, Topuria 2-0) and result lines
+- tsc clean (src), production build passed, next start restarted on :3000 with fresh chunk (COPY CARD string verified in chunk)
+
+Stage Summary:
+- COPY CARD now exports any card (live or completed) as ChatGPT-ready text with ranks, HQ + real records, OVR ratings, betting odds and results
