@@ -88,11 +88,12 @@ export function overallRating(f: Fighter): number {
 }
 
 export function currentStreak(f: Fighter): number {
+  // log is chronological — count consecutive wins from the most recent bout
+  // backwards, so a fresh Fight Lab result moves the streak live
   let streak = 0;
-  for (const e of f.log) {
-    if (e.res === "W") streak++;
-    else if (e.res === "L") break;
-    else continue;
+  for (let i = f.log.length - 1; i >= 0; i--) {
+    if (f.log[i].res === "W") streak++;
+    else break;
   }
   return streak;
 }

@@ -2,6 +2,7 @@
 
 import { createContext, useContext, useEffect, useState } from "react";
 import { useBetStore } from "@/lib/store";
+import { rehydrateCareers } from "@/lib/careers";
 
 export interface BoutSpec {
   aId: string;
@@ -40,6 +41,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [betSpec, setBetSpec] = useState<{ spec: BoutSpec; side: "A" | "B" } | null>(null);
 
   useEffect(() => {
+    // simulated-fight careers replay onto the roster first (synchronous),
+    // then the betting wallet rehydrates
+    rehydrateCareers();
     void Promise.resolve(useBetStore.persist.rehydrate()).then(() => {
       // nobody stays broke — if a stale session left the wallet empty,
       // the emergency sponsorship kicks in on load

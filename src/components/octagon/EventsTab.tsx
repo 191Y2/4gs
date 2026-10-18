@@ -6,6 +6,7 @@ import { toast } from "sonner";
 import { EVENTS, getFighter } from "@/lib/data";
 import { computeOdds, fmtOdds, simulateFight, resultSummary } from "@/lib/engine";
 import { maybeTransferBelt } from "@/lib/belts";
+import { recordSimResult } from "@/lib/careers";
 import { useBetStore } from "@/lib/store";
 import { BoutSpec, useApp } from "./AppContext";
 import { FighterAvatar, Flag, RecordText } from "./shared";
@@ -117,6 +118,8 @@ function EventCard({ eventId, index }: { eventId: string; index: number }) {
         boutLabel: bout.label ?? `${a.name} vs ${b.name}`,
         text: note,
       });
+      // the event played out — careers update with the results
+      recordSimResult(a, b, sim, { label: ev.name, title: bout.title });
       // DYNAMIC CHAMPIONSHIPS — simulate a title upset and the belt moves
       const belt = maybeTransferBelt(a, b, sim.winner);
       if (belt) {

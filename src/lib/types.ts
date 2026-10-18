@@ -27,6 +27,7 @@ export interface FightLogEntry {
   title?: " undisputed" | "interim" | "vacant" | "T" | "I" | "V";
   bonus?: "POTN" | "FOTN";
   wc?: DivisionId;     // weight class this fight was contested at
+  sim?: boolean;       // fight added by a Fight Lab / event simulation
 }
 
 export interface Fighter {

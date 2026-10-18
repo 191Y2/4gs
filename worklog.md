@@ -76,3 +76,20 @@ Work Log:
 Stage Summary:
 - Roster: 506 -> 670 fighters, ZERO unresolved names in any record; median log length 23 bouts (full careers for everyone incl. previously-partial hand-written entries)
 - Verified with agent-browser: Jones profile = 24 fights w/ title+wc badges; O'Malley 4->22 fights; broke-wallet reload -> $500 bailout toast -> bankroll $500; $50 @ -200 paid exactly $25; Gane(champ) vs Aspinall sim -> Aspinall KO'd belt from Gane w/ "NEW CHAMPION" toast, Divisions tab re-rendered; mobile 390px no overflow; tsc clean, eslint clean, production build passes
+
+---
+Task ID: 5
+Agent: main
+Task: Fight Lab sim results get written onto both fighters' career records (user: "when I put this guy against that guy and that guy loses that win gets added onto his career — small update")
+
+Work Log:
+- careers.ts (new): career ledger — recordSimResult() appends a full FightLogEntry to BOTH fighters (opponent name, event label, date, W/L/D/NC, method, detail, round, time, per-fight weight class, title flag) + increments w/l/d/nc and KO/SUB/DEC splits; same-division champ bout auto-flagged as title fight; cross-division superfights tagged at the heavier division's weight; retired legends eligible; persists to localStorage octagon-hq-careers-v1; rehydrateCareers() replays ledger onto fresh roster + replays belt transfers in order; useCareersVersion() hook forces re-render; resetCareers() wipe utility
+- types.ts: FightLogEntry.sim?: boolean marker
+- engine.ts: currentStreak fixed — was counting wins from career START (index 0 of chronological log); now counts trailing consecutive wins so WIN STREAK reacts to fresh sim results
+- BettingDialogs FightSimDialog: career write happens at the official-result moment alongside bet settlement + belt transfer; per-run settle guard (runId) fixes RUN IT BACK never re-settling belts/bets on repeated sims; toast confirms "written to both career records"
+- EventsTab runFastSim: full-card event sims record every bout onto careers too (title flag from the card's bout.title)
+- AppContext: rehydrateCareers() on mount before wallet rehydrate; page.tsx Shell subscribes via useCareersVersion so roster tiles/profiles/tale-of-tape update live; FighterProfile LogRow shows red FIGHT LAB badge on sim-added bouts
+- Verified with agent-browser: O'Malley vs champ Petr Yan sim → O'Malley 19-3-0 → 20-3-0 W KO/TKO R4 3:45 "BW TITLE | FIGHT LAB" entry, Yan 20-6-0 L + streak 0 + dethroned (belt moved); reload → careers AND belt replayed (O'Malley still BW champ); Khabib (retired) vs Makhachev (WW champ, cross-division) ×2 sims → Khabib 29-0-0 → 29-2-0 (first career losses, entries tagged WW, no title flag), Makhachev 31-1-0, OVR drift 93→90; RUN IT BACK adds one entry per run; ledger persisted all 3 bouts; tsc clean, eslint clean, production build passes; dev server restarted on :3000
+
+Stage Summary:
+- Simulated fights are now permanent career results: W/L on both records, full bout-history entries with weight class + title status + FIGHT LAB badge, live streak/OVR/roster updates, belt consequences, and localStorage persistence across reloads

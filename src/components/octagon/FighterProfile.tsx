@@ -70,6 +70,14 @@ function LogRow({ entry, fighter }: { entry: FightLogEntry; fighter: Fighter }) 
               {titleText(entry, fighter)}
             </span>
           )}
+          {entry.sim && (
+            <span
+              className="inline-flex items-center gap-1 rounded border border-[#e5322d]/40 bg-[#e5322d]/10 px-1.5 py-px text-[9px] font-display tracking-widest text-[#ff6b66]"
+              title="Added by a Fight Lab / event simulation"
+            >
+              <Swords className="h-2.5 w-2.5" /> FIGHT LAB
+            </span>
+          )}
           {entry.bonus && (
             <span className="inline-flex items-center gap-1 rounded border border-emerald-500/40 bg-emerald-500/10 px-1.5 py-px text-[9px] font-display tracking-widest text-emerald-400">
               <Star className="h-2.5 w-2.5" /> {entry.bonus}

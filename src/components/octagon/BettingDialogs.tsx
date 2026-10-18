@@ -6,6 +6,7 @@ import { toast } from "sonner";
 import { getFighter } from "@/lib/data";
 import { computeOdds, decimalFromAmerican, fmtOdds, simulateFight, SimResult, resultSummary, probFromAmerican } from "@/lib/engine";
 import { maybeTransferBelt } from "@/lib/belts";
+import { recordSimResult } from "@/lib/careers";
 import { useBetStore, BAILOUT_AMOUNT } from "@/lib/store";
 import { BoutSpec, useApp } from "./AppContext";
 import { FighterAvatar, Flag, OddsChip, RecordText } from "./shared";
@@ -217,7 +218,8 @@ export function FightSimDialog() {
   const [phase, setPhase] = useState<"idle" | "running" | "done">("idle");
   const [sim, setSim] = useState<SimResult | null>(null);
   const [revealed, setRevealed] = useState(0);
-  const settledRef = useRef<string | null>(null);
+  const [runId, setRunId] = useState(0);
+  const settledRunRef = useRef<number>(-1);
   const timers = useRef<ReturnType<typeof setTimeout>[]>([]);
 
   const activeBets = useMemo(() => {
@@ -235,20 +237,30 @@ export function FightSimDialog() {
     setPhase("idle");
     setSim(null);
     setRevealed(0);
-    settledRef.current = null;
+    settledRunRef.current = -1;
     return () => {
       timers.current.forEach(clearTimeout);
       timers.current = [];
     };
   }, [simSpec]);
 
-  // settle matching bets exactly once per simulated result + move the belt
-  // if a live champion just got dethroned
+  // settle matching bets + move the belt once per simulated run — RUNNING IT
+  // BACK is a brand new fight, so it settles fresh every time (bets already
+  // settled drop out of activeBets automatically)
   useEffect(() => {
     if (phase !== "done" || !sim || !simSpec || !bout) return;
-    const key = `${simSpec.label}-${simSpec.aId}-${simSpec.bId}-${sim.round}-${sim.time}-${Date.now()}`;
-    if (settledRef.current) return;
-    settledRef.current = key;
+    if (settledRunRef.current === runId) return;
+    settledRunRef.current = runId;
+
+    // the official result is in — straight onto both career records it goes
+    const career = recordSimResult(bout.a, bout.b, sim, simSpec);
+    if (career) {
+      if (career.drew) {
+        toast.info(`Majority draw — ${bout.a.name} vs ${bout.b.name} goes down as a D on both records`);
+      } else {
+        toast.success(`${career.winnerName} def. ${career.loserName} — written to both career records`);
+      }
+    }
 
     const winnerId = sim.winner === "A" ? bout.a.id : bout.b.id;
     const note = resultSummary(sim, bout.a, bout.b);
@@ -281,7 +293,7 @@ export function FightSimDialog() {
         toast.error(`Bet lost · −$${activeBets.reduce((s, b) => s + b.stake, 0).toFixed(2)}`);
       }
     }
-  }, [phase]);
+  }, [phase, runId]);
 
   const runSim = () => {
     if (!bout || !simSpec) return;
@@ -289,6 +301,7 @@ export function FightSimDialog() {
     setSim(result);
     setPhase("running");
     setRevealed(0);
+    setRunId((r) => r + 1);
     timers.current.forEach(clearTimeout);
     timers.current = [];
     result.rounds.forEach((_, i) => {
