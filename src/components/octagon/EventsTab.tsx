@@ -9,23 +9,29 @@ import { useBetStore } from "@/lib/store";
 import { Fighter, SimEvent, SimEventBout, EventSection } from "@/lib/types";
 import {
   addBout,
+  autoEventType,
   boutSectionLabel,
   createEvent,
   currentSaturday,
   currentWeekEvent,
   eventBouts,
   eventDisplayName,
+  eventTagline,
   events,
   isoOf,
   isTitleBout,
   moveBout,
   nextEventNumber,
+  nextFightNightNumber,
   numberedAvailableThisMonth,
   pastEvents,
   prettyDate,
   recordEventBout,
   removeBout,
+  scrapEvent,
+  shortDate,
   simRecord,
+  upcomingWeeks,
   useUniverseVersion,
 } from "@/lib/universe";
 import { BoutSpec, useApp } from "./AppContext";
@@ -53,8 +59,15 @@ function methodText(res: NonNullable<SimEventBout["result"]>): string {
   return res.method === "KO" || res.method === "SUB" ? `${base} · R${res.round} ${res.time}` : base;
 }
 
-// settle any open wallet bets that target this pair under this event label
-function settleBetsForBout(aId: string, bId: string, label: string, sim: SimResult) {
+// current + legacy display names — bets placed before a Fight Night got its
+// number still settle under the name they were placed with
+function eventSettleLabels(ev: SimEvent): string[] {
+  const name = eventDisplayName(ev);
+  return ev.legacyName && ev.legacyName !== name ? [name, ev.legacyName] : [name];
+}
+
+// settle any open wallet bets that target this pair under this event
+function settleBetsForBout(aId: string, bId: string, labels: string[], sim: SimResult) {
   const a = getFighter(aId);
   const b = getFighter(bId);
   if (!a || !b) return { won: 0, lost: 0, staked: 0 };
@@ -64,7 +77,7 @@ function settleBetsForBout(aId: string, bId: string, label: string, sim: SimResu
   let lost = 0;
   let staked = 0;
   for (const bet of useBetStore.getState().bets) {
-    if (bet.status !== "open" || bet.eventLabel !== label) continue;
+    if (bet.status !== "open" || !labels.includes(bet.eventLabel)) continue;
     if (
       !((bet.bettorFighterId === aId && bet.opponentId === bId) ||
         (bet.bettorFighterId === bId && bet.opponentId === aId))
@@ -216,7 +229,7 @@ function BoutRow({ ev, bout, index }: { ev: SimEvent; bout: SimEventBout; index:
           { duration: 7000 }
         );
       }
-      settleBetsForBout(a.id, b.id, label, sim);
+      settleBetsForBout(a.id, b.id, eventSettleLabels(ev), sim);
     }
   };
 
@@ -422,6 +435,7 @@ function EventCard({ ev }: { ev: SimEvent }) {
   const { setSimSpec } = useApp();
   const { bets } = useBetStore();
   const name = eventDisplayName(ev);
+  const tagline = eventTagline(ev);
   const pending = ev.bouts.filter((b) => !b.result);
   const openBetsCount = bets.filter(
     (b) => b.status === "open" && b.eventLabel === name
@@ -451,14 +465,19 @@ function EventCard({ ev }: { ev: SimEvent }) {
               { duration: 7000 }
             );
           }
-          const s = settleBetsForBout(a.id, b.id, name, sim);
+          const s = settleBetsForBout(a.id, b.id, eventSettleLabels(ev), sim);
           won += s.won;
           lost += s.lost;
           staked += s.staked;
         }
       }
     }
-    toast.success(`${name} is in the books — records, rankings & titles updated.`, { duration: 5000 });
+    toast.success(
+      ev.completed
+        ? `${name} is in the books — records, rankings & titles updated. Next fight week ${prettyDate(isoOf(currentSaturday()))} unlocked.`
+        : `${name}: every fightable bout is in the books.`,
+      { duration: 6000 }
+    );
     if (won + lost > 0) {
       if (won > 0) toast.success(`Event bets: ${won}W-${lost}L`);
       else toast.error(`Event bets: 0W-${lost}L · −$${staked.toFixed(2)}`);
@@ -484,7 +503,7 @@ function EventCard({ ev }: { ev: SimEvent }) {
                 </span>
               ) : (
                 <span className="rounded-full border border-sky-500/40 bg-sky-500/10 px-2.5 py-0.5 font-display text-[10px] font-bold tracking-widest text-sky-400">
-                  FIGHT NIGHT
+                  FIGHT NIGHT{ev.number ? ` ${ev.number}` : ""}
                 </span>
               )}
               {ev.completed ? (
@@ -497,7 +516,10 @@ function EventCard({ ev }: { ev: SimEvent }) {
                 </span>
               )}
             </div>
-            <h3 className="mt-1.5 font-display text-2xl font-bold text-white">{name}</h3>
+            <h3 className="mt-1.5 font-display text-2xl font-bold text-white">
+              {name}
+              {tagline && <span className="ml-2 text-base font-semibold text-zinc-500">· {tagline}</span>}
+            </h3>
             <p className="mt-0.5 flex items-center gap-1.5 text-[11px] text-zinc-500">
               <CalendarDays className="h-3 w-3" /> {prettyDate(ev.dateISO)}
               <span className="text-zinc-700">·</span>
@@ -509,6 +531,19 @@ function EventCard({ ev }: { ev: SimEvent }) {
           <div className="text-right">
             <div className="num font-display text-2xl font-bold text-white">{ev.bouts.length}</div>
             <div className="text-[9px] font-display tracking-widest text-zinc-500">BOUTS BOOKED</div>
+            {!ev.completed && ev.bouts.every((b) => !b.result) && (
+              <button
+                onClick={() => {
+                  if (scrapEvent(ev.id)) {
+                    toast.success(`Card scrapped — fight week ${prettyDate(isoOf(currentSaturday()))} is open again.`);
+                  }
+                }}
+                className="mt-1.5 text-[9px] font-display tracking-widest text-zinc-600 transition-colors hover:text-[#ff6b66]"
+                title="Nothing fought yet — scrap this card and re-book the week"
+              >
+                SCRAP CARD
+              </button>
+            )}
           </div>
         </div>
 
@@ -582,7 +617,7 @@ function PastEventRow({ ev }: { ev: SimEvent }) {
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
             <span className={`text-[9px] font-display font-bold tracking-widest ${ev.type === "numbered" ? "text-[#e0b64c]" : "text-sky-400"}`}>
-              {ev.type === "numbered" ? `UFC ${ev.number}` : "FIGHT NIGHT"}
+              {ev.type === "numbered" ? `UFC ${ev.number}` : `FIGHT NIGHT${ev.number ? ` ${ev.number}` : ""}`}
             </span>
             <span className="num text-[10px] text-zinc-600">{prettyDate(ev.dateISO)}</span>
           </div>
@@ -629,14 +664,18 @@ function PastEventRow({ ev }: { ev: SimEvent }) {
 export function EventsTab() {
   useUniverseVersion();
   const week = currentSaturday();
+  const weekIso = isoOf(week);
   const current = currentWeekEvent();
   const past = pastEvents();
   const all = events();
-  const numberedOk = numberedAvailableThisMonth(`${week.getFullYear()}-${String(week.getMonth() + 1).padStart(2, "0")}-01`);
+  const numberedOk = numberedAvailableThisMonth(weekIso);
   const nextNum = nextEventNumber();
+  const nextFN = nextFightNightNumber();
+  const auto = autoEventType(weekIso);
+  const road = upcomingWeeks(6);
   const totalBouts = all.reduce((s, e) => s + e.bouts.length, 0);
 
-  const create = (type: "numbered" | "fightnight") => {
+  const create = (type?: "numbered" | "fightnight") => {
     const res = createEvent(type);
     if (!res.ok && res.reason) toast.error(res.reason);
     else if (res.event) toast.success(`${eventDisplayName(res.event)} created — ${prettyDate(res.event.dateISO)} at ${res.event.venue}`);
@@ -650,7 +689,7 @@ export function EventsTab() {
             <CalendarDays className="h-5 w-5 text-[#e5322d]" /> UNIVERSE EVENT CENTER
           </h2>
           <p className="mt-0.5 text-xs text-zinc-500">
-            Fight weeks run Saturday → Friday · first week Oct 17, 2026 · event results update records, rankings & titles
+            One card every Saturday — finish a card and the next fight week unlocks instantly, forever · results update records, rankings & titles
           </p>
         </div>
         <div className="flex gap-3 text-center">
@@ -678,10 +717,10 @@ export function EventsTab() {
             Fight week of <span className="font-semibold text-zinc-300">{prettyDate(isoOf(week))}</span> is open —
             Saturday night is dark. Book a card and every bout on it counts toward the fighters' OCTAGONHQ records.
           </p>
-          <div className="mt-5 flex flex-wrap justify-center gap-2">
-            {numberedOk ? (
+          <div className="mt-5 flex flex-wrap items-center justify-center gap-2">
+            {auto === "numbered" ? (
               <>
-                <Button onClick={() => create("numbered")} className="red-grad h-12 px-8 font-display font-bold tracking-widest text-white hover:opacity-90">
+                <Button onClick={() => create()} className="red-grad h-12 px-8 font-display font-bold tracking-widest text-white hover:opacity-90">
                   <Dices className="mr-2 h-4 w-4" /> CREATE UFC {nextNum}
                 </Button>
                 <Button
@@ -689,23 +728,56 @@ export function EventsTab() {
                   variant="outline"
                   className="h-12 border-sky-500/40 bg-sky-500/10 font-display font-bold tracking-widest text-sky-400 hover:bg-sky-500/20"
                 >
-                  CREATE FIGHT NIGHT
+                  CREATE FIGHT NIGHT {nextFN}
                 </Button>
               </>
             ) : (
-              <Button
-                onClick={() => create("fightnight")}
-                className="red-grad h-12 px-8 font-display font-bold tracking-widest text-white hover:opacity-90"
-              >
-                <Dices className="mr-2 h-4 w-4" /> CREATE FIGHT NIGHT
-              </Button>
+              <>
+                <Button
+                  onClick={() => create()}
+                  className="h-12 border-sky-500/40 bg-sky-500/10 px-8 font-display font-bold tracking-widest text-sky-400 hover:bg-sky-500/20"
+                >
+                  <Dices className="mr-2 h-4 w-4" /> CREATE FIGHT NIGHT {nextFN}
+                </Button>
+                {numberedOk && (
+                  <Button
+                    onClick={() => create("numbered")}
+                    className="red-grad h-12 px-8 font-display font-bold tracking-widest text-white hover:opacity-90"
+                  >
+                    CREATE UFC {nextNum}
+                  </Button>
+                )}
+              </>
             )}
           </div>
-          {numberedOk ? (
-            <p className="mt-3 text-[10px] text-zinc-600">One numbered event per month — Fight Nights fill the other weeks.</p>
-          ) : (
-            <p className="mt-3 text-[10px] text-zinc-600">A numbered event already ran this month — this week is a Fight Night.</p>
-          )}
+          <p className="mt-3 text-[10px] text-zinc-600">
+            {numberedOk
+              ? "One numbered event per month — Fight Nights fill the other Saturdays."
+              : "A numbered event already ran this month — this Saturday is a Fight Night."}
+          </p>
+
+          {/* the road ahead — the infinite Saturday schedule */}
+          <div className="mx-auto mt-6 max-w-2xl">
+            <div className="text-[9px] font-display tracking-[0.25em] text-zinc-600">
+              THE ROAD AHEAD — A CARD EVERY SATURDAY, FOREVER
+            </div>
+            <div className="mt-2 flex flex-wrap justify-center gap-1.5">
+              {road.map((s) => (
+                <div
+                  key={s.iso}
+                  className={`rounded-lg border px-2.5 py-1.5 text-center ${
+                    s.type === "numbered" ? "border-[#e0b64c]/30 bg-[#e0b64c]/[0.06]" : "border-sky-500/20 bg-sky-500/[0.04]"
+                  }`}
+                >
+                  <div className="num text-[9px] text-zinc-500">{shortDate(s.iso)}</div>
+                  <div className={`text-[10px] font-display font-bold ${s.type === "numbered" ? "text-[#e0b64c]" : "text-sky-400"}`}>
+                    {s.name}
+                  </div>
+                </div>
+              ))}
+            </div>
+            <p className="mt-2 text-[9px] text-zinc-600">Auto-scheduled — override any week when you create its card.</p>
+          </div>
         </div>
       )}
 

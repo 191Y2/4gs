@@ -50,26 +50,20 @@ export function useUniverseVersion(): void {
 
 // ---------- calendar ----------
 // weeks run Saturday → Friday; every event happens on its week's Saturday.
-// Universe time advances with COMPLETED cards — finish this week's event and
-// next Saturday unlocks immediately, so you can keep booking cards back to
-// back instead of waiting for the real-world clock.
-export function saturdayOf(d: Date): Date {
-  const sat = new Date(d.getFullYear(), d.getMonth(), d.getDate());
-  sat.setDate(sat.getDate() - ((sat.getDay() + 7 - 6) % 7)); // back to Saturday
-  return sat;
-}
-
+// The clock is PURE universe time — the real-world calendar is irrelevant.
+// The first fight week is Oct 17, 2026; the moment a card is completed the
+// next Saturday unlocks, and that rolls on FOREVER: Fight Night 1 → UFC 334
+// → Fight Night 2 → UFC 335… one card every Saturday, endlessly. An
+// unfinished card pins the clock on its own Saturday until it's run or
+// scrapped.
 export function currentSaturday(): Date {
-  const real = saturdayOf(new Date());
-  const cur = real < FIRST_SATURDAY ? FIRST_SATURDAY : real;
-  const iso = isoOf(cur);
-  const thisWeek = state.events.find((e) => e.dateISO === iso);
-  if (thisWeek?.completed) {
-    const next = new Date(cur);
-    next.setDate(next.getDate() + 7);
-    return next;
-  }
-  return cur;
+  if (state.events.length === 0) return new Date(FIRST_SATURDAY);
+  const latest = state.events.reduce((m, e) => (e.dateISO > m.dateISO ? e : m));
+  if (!latest.completed) return dateOfIso(latest.dateISO);
+  // card done — the next fight week unlocks instantly, forever
+  const next = dateOfIso(latest.dateISO);
+  next.setDate(next.getDate() + 7);
+  return next;
 }
 
 export function isoOf(d: Date): string {
@@ -83,6 +77,10 @@ export function dateOfIso(iso: string): Date {
 
 export function prettyDate(iso: string): string {
   return dateOfIso(iso).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+}
+
+export function shortDate(iso: string): string {
+  return dateOfIso(iso).toLocaleDateString("en-US", { month: "short", day: "numeric" });
 }
 
 // ---------- state ----------
@@ -232,6 +230,8 @@ export function pastEvents(): SimEvent[] {
 
 export function eventDisplayName(ev: SimEvent): string {
   if (ev.type === "numbered") return `UFC ${ev.number}`;
+  if (ev.number != null) return `UFC Fight Night ${ev.number}`;
+  // pre-numbering fight night — fall back to a main-event name
   const main = ev.bouts.find((b) => b.section === "main");
   if (main) {
     const a = getFighter(main.aId);
@@ -239,6 +239,16 @@ export function eventDisplayName(ev: SimEvent): string {
     if (a && b) return `UFC Fight Night: ${a.name.split(" ").slice(-1)[0]} vs ${b.name.split(" ").slice(-1)[0]}`;
   }
   return "UFC Fight Night";
+}
+
+// main-event tagline for card headers ("Topuria vs Evloev")
+export function eventTagline(ev: SimEvent): string | null {
+  const main = ev.bouts.find((b) => b.section === "main");
+  if (!main) return null;
+  const a = getFighter(main.aId);
+  const b = getFighter(main.bId);
+  if (!a || !b) return null;
+  return `${a.name.split(" ").slice(-1)[0]} vs ${b.name.split(" ").slice(-1)[0]}`;
 }
 
 export function eventBouts(ev: SimEvent, section: EventSection): SimEventBout[] {
@@ -264,25 +274,92 @@ export function nextEventNumber(): number {
   return Math.max(FIRST_EVENT_NUMBER, max + 1);
 }
 
+// Fight Nights carry their own infinite counter — Fight Night 1, 2, 3…
+export function nextFightNightNumber(): number {
+  let max = 0;
+  let count = 0;
+  for (const e of state.events) {
+    if (e.type !== "fightnight") continue;
+    count++;
+    max = Math.max(max, e.number ?? 0);
+  }
+  return Math.max(count, max) + 1;
+}
+
+// The event the calendar itself books this Saturday: the inaugural card is
+// Fight Night 1; after that, the month's numbered (PPV) slot belongs to the
+// first week of the month that hasn't spent it — every other week is a
+// Fight Night. One click, the sequence just rolls.
+export function autoEventType(dateISO: string): "numbered" | "fightnight" {
+  if (state.events.length === 0) return "fightnight";
+  return numberedAvailableThisMonth(dateISO) ? "numbered" : "fightnight";
+}
+
+export interface WeekSlot {
+  iso: string;
+  type: "numbered" | "fightnight";
+  name: string;
+}
+
+// THE ROAD AHEAD — the infinite schedule: the next Saturdays and the events
+// the calendar would auto-book on them (override any week at creation).
+export function upcomingWeeks(count = 6): WeekSlot[] {
+  const slots: WeekSlot[] = [];
+  let d = currentSaturday();
+  let ufc = nextEventNumber();
+  let fn = nextFightNightNumber();
+  const numberedMonths = new Set(
+    state.events.filter((e) => e.type === "numbered").map((e) => e.dateISO.slice(0, 7))
+  );
+  for (let i = 0; i < count; i++) {
+    const iso = isoOf(d);
+    const ym = iso.slice(0, 7);
+    const type: "numbered" | "fightnight" =
+      i === 0 ? autoEventType(iso) : numberedMonths.has(ym) ? "fightnight" : "numbered";
+    slots.push({ iso, type, name: type === "numbered" ? `UFC ${ufc}` : `UFC Fight Night ${fn}` });
+    if (type === "numbered") {
+      ufc++;
+      numberedMonths.add(ym);
+    } else {
+      fn++;
+    }
+    d = new Date(d.getFullYear(), d.getMonth(), d.getDate() + 7);
+  }
+  return slots;
+}
+
+// scrap an unbuilt card (nothing fought yet, so nothing to unwind) — the
+// fight week re-opens for a fresh booking
+export function scrapEvent(eventId: string): boolean {
+  const ev = state.events.find((e) => e.id === eventId);
+  if (!ev || ev.completed) return false;
+  if (ev.bouts.some((b) => b.result)) return false;
+  state.events = state.events.filter((e) => e.id !== eventId);
+  save();
+  bump();
+  return true;
+}
+
 export interface CreateEventResult {
   ok: boolean;
   reason?: string;
   event?: SimEvent;
 }
 
-export function createEvent(type: "numbered" | "fightnight"): CreateEventResult {
+export function createEvent(type?: "numbered" | "fightnight"): CreateEventResult {
   const iso = isoOf(currentSaturday());
+  const chosen = type ?? autoEventType(iso);
   if (state.events.some((e) => e.dateISO === iso)) {
-    return { ok: false, reason: "This week already has an event — run it or check the card." };
+    return { ok: false, reason: "This week already has an event — run it, scrap it, or check the card." };
   }
-  if (type === "numbered" && !numberedAvailableThisMonth(iso)) {
+  if (chosen === "numbered" && !numberedAvailableThisMonth(iso)) {
     return { ok: false, reason: "A numbered event already ran this month — book a Fight Night." };
   }
   const spot = VENUES[state.events.length % VENUES.length];
   const ev: SimEvent = {
     id: uid(),
-    type,
-    number: type === "numbered" ? nextEventNumber() : undefined,
+    type: chosen,
+    number: chosen === "numbered" ? nextEventNumber() : nextFightNightNumber(),
     dateISO: iso,
     venue: spot.venue.trim(),
     city: spot.city,
@@ -522,6 +599,22 @@ export function rehydrateUniverse(): void {
     const parsed = JSON.parse(raw) as UniverseState;
     if (!parsed || !Array.isArray(parsed.events) || !Array.isArray(parsed.ledger)) return;
     state = { events: parsed.events, ledger: [] };
+    // migrate: legacy fight nights get their infinite numbers (Fight Night
+    // 1, 2, 3… in fight order); the old display name is kept so any open
+    // wallet bets placed under it still settle
+    let fn = 1;
+    let changed = false;
+    const ordered = [...state.events].sort((a, b) => (a.dateISO < b.dateISO ? -1 : a.dateISO > b.dateISO ? 1 : 0));
+    for (const ev of ordered) {
+      if (ev.type !== "fightnight") continue;
+      if (ev.number == null) {
+        ev.legacyName = eventDisplayName(ev); // capture BEFORE numbering
+        ev.number = fn;
+        changed = true;
+      }
+      fn = Math.max(fn, ev.number + 1);
+    }
+    if (changed) save();
     // replay bouts in order — records, sim counters AND belt transfers
     for (const rec of parsed.ledger) {
       const a = getFighter(rec.aId);

@@ -161,11 +161,12 @@ export interface SimEventBout {
 export interface SimEvent {
   id: string;
   type: "numbered" | "fightnight"; // numbered = UFC 334+ (one per month max)
-  number?: number;                 // 334, 335, …
+  number?: number;                 // 334, 335, … or Fight Night 1, 2, 3…
   dateISO: string;                 // the Saturday of fight week "2026-10-17"
   venue: string;
   city: string;
   bouts: SimEventBout[];
   completed: boolean;
   createdAt: number;
+  legacyName?: string;             // pre-numbering display name — kept so old open bets settle
 }

@@ -112,3 +112,21 @@ Work Log:
 
 Stage Summary:
 - Delivered: wiped fight-lab records; lab = exhibition; full UFC-universe event simulator (weekly cards, sections, reordering, monthly numbered events + fight nights) driving records/championships/OCTAGONHQ 0-0 rankings; detailed 15-30s/round play-by-play engine with speed + skip; instant production loading (prebuilt roster JSON + standalone server)
+---
+Task ID: 7
+Agent: main
+Task: Infinite auto-advancing event calendar (user: "make this infinite so if fight night 1 happened in oct 17 the UFC 334 should be the next Saturday and it auto changes")
+
+Work Log:
+- ROOT CAUSE found in universe.ts currentSaturday(): it derived the fight week from the REAL clock (new Date()) and only stepped ONE Saturday past it when that week's event completed — after 2+ completed cards the clock pointed at a completed event forever and createEvent blocked with "This week already has an event". The universe could never pass 2 events
+- FIX: currentSaturday() is now PURE universe time — no events = anchor Oct 17 2026; latest event unfinished = clock pinned on its Saturday; latest event completed = next Saturday (latest + 7) unlocks instantly, FOREVER (unbounded chain)
+- Auto event sequence: autoEventType() books the inaugural card as Fight Night 1, then the month's numbered (PPV) slot on the first week that hasn't spent it — exactly FN 1 -> UFC 334 -> FN 2 -> UFC 335...; createEvent(type?) defaults to the auto type, override buttons kept
+- Fight Nights now carry their own infinite counter (UFC Fight Night 1, 2, 3... via nextFightNightNumber()); eventDisplayName()/badges/history/taglines updated; eventTagline() shows "X vs Y" next to card titles
+- THE ROAD AHEAD strip on the create screen: upcomingWeeks(6) projects the next Saturdays with their auto events (verified rolling across months: Nov 7 UFC 335 ... Dec 5 UFC 336)
+- Legacy migration in rehydrateUniverse(): pre-numbering fight nights get back-filled numbers in fight order; old display name kept as SimEvent.legacyName so open wallet bets placed under it still settle (settleBetsForBout now takes a labels array via eventSettleLabels()); jammed legacy calendars un-stick themselves on load
+- scrapEvent() + SCRAP CARD button: an unbuilt card (no results) can be scrapped so the week re-opens (clock can't be pinned forever); RUN FULL CARD toast now announces the unlocked next fight week
+- Rebuilt standalone production server on :3000 (HTTP 200 in 26ms); tsc clean (src), eslint clean
+- E2E verified with agent-browser: FN 1 created Oct 17 -> title bout Gane vs Aspinall (auto TITLE flag) -> RUN FULL CARD -> Aspinall KO R3 took the HW belt, week auto-rolled to Oct 24 offering CREATE UFC 334 -> UFC 334 created, Strickland vs Du Plessis title main -> Du Plessis KO R3 dethroned him, week rolled to Oct 31 offering FIGHT NIGHT 2 only -> FN 2 run -> week rolled to Nov 7 offering UFC 335; reload persistence OK; legacy jammed state (unnamed FN + completed UFC 334) injected -> reload -> un-jammed to Oct 31, FN migrated to FIGHT NIGHT 1 with legacyName captured; mobile 390px zero overflow; zero console errors
+
+Stage Summary:
+- The event calendar is now truly infinite and self-driving: complete any card and the next Saturday unlocks with the correct auto-numbered event (Fight Night counter + UFC counter + one PPV per month), with a visible never-ending schedule strip, stuck-state self-healing, and a scrap-card escape hatch
