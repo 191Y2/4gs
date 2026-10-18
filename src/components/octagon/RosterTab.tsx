@@ -6,6 +6,7 @@ import { searchFighters, DIVISIONS, ROSTER, LEGENDS } from "@/lib/data";
 import { DivisionId, Fighter } from "@/lib/types";
 import { overallRating, currentStreak } from "@/lib/engine";
 import { useApp } from "./AppContext";
+import { useBeltsVersion } from "@/lib/belts";
 import { FighterAvatar, Flag, RecordText, RankBadge, WinMethodBar } from "./shared";
 import { Search, X, Crown, Star, Zap, TrendingUp, Trophy } from "lucide-react";
 import { Input } from "@/components/ui/input";
@@ -63,6 +64,7 @@ function FighterTile({ fighter, i }: { fighter: Fighter; i: number }) {
 }
 
 export function RosterTab() {
+  useBeltsVersion(); // crowns & champion filters stay live when belts move
   const [query, setQuery] = useState("");
   const [division, setDivision] = useState<DivisionId | "all">("all");
   const [filter, setFilter] = useState<"all" | "ranked" | "champions" | "legends">("all");

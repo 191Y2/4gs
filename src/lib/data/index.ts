@@ -12,6 +12,13 @@ import { HW_DEPTH, LHW_DEPTH, MW_DEPTH } from "./roster-depth-1";
 import { WW_DEPTH, LW_DEPTH } from "./roster-depth-2";
 import { FW_DEPTH, BW_DEPTH, FLW_DEPTH } from "./roster-depth-3";
 import { WBW_DEPTH, WFLW_DEPTH, WSW_DEPTH } from "./roster-depth-w";
+import { JONES, JONES_PEERS } from "./roster-jones";
+import { FILL_LEGENDS, FILL_MEN, FILL_WOMEN } from "./roster-fill";
+import { auto, slug, fillCareer } from "./depth";
+import {
+  AUTO_HW, AUTO_LHW, AUTO_MW, AUTO_WW, AUTO_LW, AUTO_FW,
+  AUTO_BW, AUTO_FLW, AUTO_WBW, AUTO_WFLW, AUTO_WSW,
+} from "./roster-auto";
 
 export { DIVISIONS, DIVISION_MAP } from "./core";
 export { EVENTS } from "./events";
@@ -31,6 +38,13 @@ const RAW_ROSTER: Fighter[] = [
   ...WW_DEPTH, ...LW_DEPTH,
   ...FW_DEPTH, ...BW_DEPTH, ...FLW_DEPTH,
   ...WBW_DEPTH, ...WFLW_DEPTH, ...WSW_DEPTH,
+  // Jon Bones Jones — complete UFC record — plus his opponents on file
+  ...JONES_PEERS, JONES,
+  // fill roster — every name referenced across all records becomes a fighter
+  ...FILL_LEGENDS, ...FILL_MEN, ...FILL_WOMEN,
+  // deep auto roster — every pool name is a fighter with a full career
+  ...AUTO_HW, ...AUTO_LHW, ...AUTO_MW, ...AUTO_WW, ...AUTO_LW,
+  ...AUTO_FW, ...AUTO_BW, ...AUTO_FLW, ...AUTO_WBW, ...AUTO_WFLW, ...AUTO_WSW,
 ];
 
 // Deduplicate by id (first occurrence wins) so cross-file name clashes can't break the map
@@ -45,8 +59,56 @@ export const FIGHTER_MAP: Record<string, Fighter> = Object.fromEntries(
   ROSTER.map((f) => [f.id, f])
 );
 
+// ---------- Complete records for everyone ----------
+// Hand-written files log only recent/key bouts — backfill the early career
+// so every fighter carries their FULL W-L record bout-by-bout.
+for (const f of ROSTER) fillCareer(f);
+
+// ---------- Alias resolution ----------
+// Names that appear in records under a different spelling than the database.
+const ALIASES: Record<string, string> = {
+  "weili-zhang": "zhang-weili",
+  "xiaonan-yan": "yan-xiaonan",
+  "korean-zombie": "chan-sung-jung",
+  "king-green": "bobby-green",
+  "ian-machado-garry": "ian-garry",
+};
+
 export function getFighter(id: string): Fighter | undefined {
-  return FIGHTER_MAP[id];
+  return FIGHTER_MAP[id] ?? FIGHTER_MAP[ALIASES[id] ?? ""];
+}
+
+// ---------- Ghost registration ----------
+// "If you find a fighter in a record that doesn't exist, add them to the
+// database." Any opponent name that appears in a bout history but isn't on
+// file gets auto-registered here with a deterministic generated profile &
+// full career — so every name in every record is clickable.
+export const GHOSTS: Fighter[] = [];
+
+export function ensureFighter(name: string, division?: DivisionId): Fighter | undefined {
+  const clean = name?.trim();
+  if (!clean) return undefined;
+  const id = slug(clean);
+  const canonical = ALIASES[id] ?? id;
+  const existing = FIGHTER_MAP[canonical];
+  if (existing) return existing;
+  const ghost = auto(division ?? "HW", clean, "US", { retired: true });
+  ghost.rank = null;
+  GHOSTS.push(ghost);
+  ROSTER.push(ghost);
+  FIGHTER_MAP[ghost.id] = ghost;
+  return ghost;
+}
+
+// Eager pass — sweep every bout history once at load and register any
+// straggler opponents up front, so the database is fully closed on day one.
+for (const f of ROSTER) {
+  for (const e of f.log) {
+    const id = slug(e.op);
+    if (!FIGHTER_MAP[id] && !FIGHTER_MAP[ALIASES[id] ?? ""]) {
+      ensureFighter(e.op, f.division);
+    }
+  }
 }
 
 export function divisionRoster(div: DivisionId): Fighter[] {
@@ -61,7 +123,11 @@ export function divisionRoster(div: DivisionId): Fighter[] {
     });
 }
 
-export const CHAMPIONS: Fighter[] = ROSTER.filter((f) => f.isChampion);
+// live champion list — recomputed on access so belt transfers (belts.ts)
+// are reflected immediately by any re-rendering screen
+export function champions(): Fighter[] {
+  return ROSTER.filter((f) => f.isChampion);
+}
 
 // Hall-of-Fame icons & retired greats (for the Legends filter & showcases)
 export const LEGENDS: Fighter[] = ROSTER.filter((f) => f.status === "retired");

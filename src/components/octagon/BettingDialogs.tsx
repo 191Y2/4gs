@@ -5,12 +5,13 @@ import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { toast } from "sonner";
 import { getFighter } from "@/lib/data";
 import { computeOdds, decimalFromAmerican, fmtOdds, simulateFight, SimResult, resultSummary, probFromAmerican } from "@/lib/engine";
-import { useBetStore } from "@/lib/store";
+import { maybeTransferBelt } from "@/lib/belts";
+import { useBetStore, BAILOUT_AMOUNT } from "@/lib/store";
 import { BoutSpec, useApp } from "./AppContext";
 import { FighterAvatar, Flag, OddsChip, RecordText } from "./shared";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Zap, DollarSign, Trophy, Calculator, Play, RotateCcw, Check, X } from "lucide-react";
+import { Zap, DollarSign, Trophy, Calculator, Play, RotateCcw, Check, X, HandCoins } from "lucide-react";
 
 // ---------- odds helpers ----------
 export function useBout(spec: BoutSpec | null) {
@@ -51,7 +52,7 @@ export function BetDialog() {
 
 function BetDialogInner({ spec, side, onClose }: { spec: BoutSpec; side: "A" | "B"; onClose: () => void }) {
   const bout = useBout(spec);
-  const { bankroll, placeBet } = useBetStore();
+  const { bankroll, placeBet, claimBailout } = useBetStore();
   const [stake, setStake] = useState("10");
 
   const fighter = side === "A" ? bout?.a : bout?.b;
@@ -59,17 +60,22 @@ function BetDialogInner({ spec, side, onClose }: { spec: BoutSpec; side: "A" | "
   const dec = decimalFromAmerican(odds);
   const stakeNum = Math.max(0, parseFloat(stake) || 0);
   const profit = stakeNum * (dec - 1);
+  const broke = bankroll < 1;
 
   if (!bout || !fighter) {
     return <Dialog open={false} onOpenChange={() => {}}><DialogContent /></Dialog>;
   }
 
-  const quickAmounts = [5, 10, 25];
+  const quickAmounts = [5, 10, 25, 50, 100];
   const canAfford = stakeNum > 0 && stakeNum <= bankroll;
 
   const confirm = () => {
+    if (broke) {
+      toast.error(`You're flat broke — collect the $${BAILOUT_AMOUNT} emergency sponsorship first`);
+      return;
+    }
     if (!canAfford) {
-      toast.error(stakeNum <= 0 ? "Enter a stake first" : "Not enough bankroll — reset if you're broke");
+      toast.error(stakeNum <= 0 ? "Enter a stake first" : "Not enough bankroll — bet what you've got");
       return;
     }
     const ok = placeBet({
@@ -111,72 +117,92 @@ function BetDialogInner({ spec, side, onClose }: { spec: BoutSpec; side: "A" | "
             <OddsChip odds={odds} side="A" />
           </div>
 
-          <div className="mt-4 space-y-3">
-            <div>
-              <div className="mb-1.5 flex items-center justify-between text-[10px] font-display tracking-[0.15em] text-zinc-500 uppercase">
-                <span>Stake</span>
-                <span>Bankroll: <span className="num text-emerald-400">${bankroll.toFixed(2)}</span></span>
-              </div>
-              <div className="flex gap-2">
-                <Input
-                  type="number"
-                  min={1}
-                  max={Math.floor(bankroll)}
-                  value={stake}
-                  onChange={(e) => setStake(e.target.value)}
-                  className="num border-white/15 bg-black/40 text-lg font-bold"
-                  placeholder="0"
-                />
-              </div>
-              <div className="mt-2 flex flex-wrap gap-1.5">
-                {quickAmounts.map((q) => (
+          {broke ? (
+            <div className="mt-4 rounded-xl border border-[#e0b64c]/40 bg-[#e0b64c]/10 p-4 text-center">
+              <HandCoins className="mx-auto h-8 w-8 text-[#e0b64c]" />
+              <p className="mt-2 text-sm font-semibold text-zinc-200">You're flat broke!</p>
+              <p className="mt-1 text-xs text-zinc-400">
+                The promoter won't leave a fighter on the canvas. A $500 emergency sponsorship is on the table.
+              </p>
+              <Button
+                onClick={() => {
+                  claimBailout();
+                  setStake("10");
+                }}
+                className="red-grad mt-3 w-full font-display font-bold tracking-widest text-white hover:opacity-90"
+              >
+                <HandCoins className="mr-2 h-4 w-4" /> COLLECT $500 SPONSORSHIP
+              </Button>
+            </div>
+          ) : (
+            <div className="mt-4 space-y-3">
+              <div>
+                <div className="mb-1.5 flex items-center justify-between text-[10px] font-display tracking-[0.15em] text-zinc-500 uppercase">
+                  <span>Stake</span>
+                  <span>Bankroll: <span className="num text-emerald-400">${bankroll.toFixed(2)}</span></span>
+                </div>
+                <div className="flex gap-2">
+                  <Input
+                    type="number"
+                    min={1}
+                    max={Math.floor(bankroll)}
+                    value={stake}
+                    onChange={(e) => setStake(e.target.value)}
+                    className="num border-white/15 bg-black/40 text-lg font-bold"
+                    placeholder="0"
+                  />
+                </div>
+                <div className="mt-2 flex flex-wrap gap-1.5">
+                  {quickAmounts.map((q) => (
+                    <button
+                      key={q}
+                      onClick={() => setStake(String(q))}
+                      disabled={q > bankroll}
+                      className="rounded-md border border-white/10 bg-white/5 px-2.5 py-1 text-xs font-semibold num text-zinc-300 transition-colors hover:border-[#e5322d]/50 hover:text-white disabled:opacity-30"
+                    >
+                      ${q}
+                    </button>
+                  ))}
                   <button
-                    key={q}
-                    onClick={() => setStake(String(q))}
-                    className="rounded-md border border-white/10 bg-white/5 px-2.5 py-1 text-xs font-semibold num text-zinc-300 transition-colors hover:border-[#e5322d]/50 hover:text-white"
+                    onClick={() => setStake(String(Math.max(0, Math.floor(bankroll * 100) / 100)))}
+                    className="rounded-md border border-[#e5322d]/40 bg-[#e5322d]/10 px-2.5 py-1 text-xs font-semibold text-[#ff6b66] transition-colors hover:bg-[#e5322d]/20"
                   >
-                    ${q}
+                    ALL-IN
                   </button>
-                ))}
-                <button
-                  onClick={() => setStake(String(Math.max(0, Math.floor(bankroll * 100) / 100)))}
-                  className="rounded-md border border-[#e5322d]/40 bg-[#e5322d]/10 px-2.5 py-1 text-xs font-semibold text-[#ff6b66] transition-colors hover:bg-[#e5322d]/20"
-                >
-                  ALL-IN
-                </button>
+                </div>
               </div>
-            </div>
 
-            <div className="rounded-xl border border-[#e0b64c]/30 bg-[#e0b64c]/5 p-3">
-              <div className="flex items-center justify-between text-xs text-zinc-400">
-                <span>American line</span>
-                <span className="num font-bold text-white">{fmtOdds(odds)}</span>
+              <div className="rounded-xl border border-[#e0b64c]/30 bg-[#e0b64c]/5 p-3">
+                <div className="flex items-center justify-between text-xs text-zinc-400">
+                  <span>American line</span>
+                  <span className="num font-bold text-white">{fmtOdds(odds)}</span>
+                </div>
+                <div className="mt-1 flex items-center justify-between text-xs text-zinc-400">
+                  <span>Decimal</span>
+                  <span className="num font-bold text-white">{dec.toFixed(2)}</span>
+                </div>
+                <div className="my-2 h-px bg-white/10" />
+                <div className="flex items-center justify-between">
+                  <span className="text-xs text-zinc-400">Pays if he wins</span>
+                  <span className="num font-display text-xl font-bold text-[#e0b64c]">
+                    +${profit.toFixed(2)}
+                  </span>
+                </div>
+                <div className="mt-0.5 text-right text-[10px] text-zinc-500 num">
+                  returns ${(stakeNum + profit).toFixed(2)} total
+                </div>
               </div>
-              <div className="mt-1 flex items-center justify-between text-xs text-zinc-400">
-                <span>Decimal</span>
-                <span className="num font-bold text-white">{dec.toFixed(2)}</span>
-              </div>
-              <div className="my-2 h-px bg-white/10" />
-              <div className="flex items-center justify-between">
-                <span className="text-xs text-zinc-400">Pays if he wins</span>
-                <span className="num font-display text-xl font-bold text-[#e0b64c]">
-                  +${profit.toFixed(2)}
-                </span>
-              </div>
-              <div className="mt-0.5 text-right text-[10px] text-zinc-500 num">
-                returns ${(stakeNum + profit).toFixed(2)} total
-              </div>
-            </div>
 
-            <Button
-              onClick={confirm}
-              disabled={!canAfford}
-              className="w-full red-grad h-11 font-display text-base font-bold tracking-widest text-white hover:opacity-90 disabled:opacity-40"
-            >
-              <Zap className="mr-2 h-4 w-4" />
-              CONFIRM BET
-            </Button>
-          </div>
+              <Button
+                onClick={confirm}
+                disabled={!canAfford}
+                className="w-full red-grad h-11 font-display text-base font-bold tracking-widest text-white hover:opacity-90 disabled:opacity-40"
+              >
+                <Zap className="mr-2 h-4 w-4" />
+                CONFIRM BET
+              </Button>
+            </div>
+          )}
         </div>
       </DialogContent>
     </Dialog>
@@ -216,7 +242,8 @@ export function FightSimDialog() {
     };
   }, [simSpec]);
 
-  // settle matching bets exactly once per simulated result
+  // settle matching bets exactly once per simulated result + move the belt
+  // if a live champion just got dethroned
   useEffect(() => {
     if (phase !== "done" || !sim || !simSpec || !bout) return;
     const key = `${simSpec.label}-${simSpec.aId}-${simSpec.bId}-${sim.round}-${sim.time}-${Date.now()}`;
@@ -238,6 +265,14 @@ export function FightSimDialog() {
       } else {
         lost++;
       }
+    }
+    // DYNAMIC CHAMPIONSHIPS — the champ can lose the belt right here
+    const belt = maybeTransferBelt(bout.a, bout.b, sim.winner);
+    if (belt) {
+      toast.success(
+        `NEW CHAMPION! ${belt.newChamp.name} dethrones ${belt.oldChamp.name} — the ${belt.divName} belt changes hands!`,
+        { duration: 7000 }
+      );
     }
     if (won + lost > 0) {
       if (won > 0) {

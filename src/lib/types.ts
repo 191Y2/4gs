@@ -26,6 +26,7 @@ export interface FightLogEntry {
   t?: string;          // time "2:09"
   title?: " undisputed" | "interim" | "vacant" | "T" | "I" | "V";
   bonus?: "POTN" | "FOTN";
+  wc?: DivisionId;     // weight class this fight was contested at
 }
 
 export interface Fighter {

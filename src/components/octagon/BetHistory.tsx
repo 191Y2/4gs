@@ -2,13 +2,13 @@
 
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
-import { useBetStore } from "@/lib/store";
+import { useBetStore, BAILOUT_AMOUNT } from "@/lib/store";
 import { fmtOdds } from "@/lib/engine";
 import { useApp } from "./AppContext";
-import { DollarSign, TrendingUp, Trophy, X, Check, RotateCcw, Trash2, Swords } from "lucide-react";
+import { DollarSign, TrendingUp, Trophy, X, Check, RotateCcw, Trash2, Swords, HandCoins } from "lucide-react";
 
 export function BetHistorySheet({ open, onOpenChange }: { open: boolean; onOpenChange: (v: boolean) => void }) {
-  const { bets, bankroll, placed, wonCount, lostCount, resetBankroll, clearHistory } = useBetStore();
+  const { bets, bankroll, placed, wonCount, lostCount, bailouts, resetBankroll, clearHistory, claimBailout } = useBetStore();
   const { mounted } = useApp();
 
   const settled = bets.filter((b) => b.status !== "open");
@@ -55,17 +55,41 @@ export function BetHistorySheet({ open, onOpenChange }: { open: boolean; onOpenC
           </div>
 
           {(mounted ? bankroll : 100) < 1 && (
-            <div className="rounded-xl border border-[#e5322d]/40 bg-[#e5322d]/10 p-3">
-              <p className="text-xs text-zinc-300">
-                You&apos;re busted! Every great gambler needs a second chance.
+            <div className="rounded-xl border border-[#e0b64c]/40 bg-[#e0b64c]/10 p-3">
+              <p className="flex items-center gap-1.5 text-xs font-semibold text-zinc-200">
+                <HandCoins className="h-4 w-4 text-[#e0b64c]" /> You&apos;re busted!
               </p>
-              <Button
-                onClick={() => resetBankroll()}
-                size="sm"
-                className="red-grad mt-2 font-display font-bold tracking-widest text-white"
-              >
-                <RotateCcw className="mr-1.5 h-3.5 w-3.5" /> RESET TO $100
-              </Button>
+              <p className="mt-1 text-xs text-zinc-400">
+                The promoter won&apos;t leave you on the canvas — collect the emergency sponsorship and get back in the game.
+              </p>
+              <div className="mt-2 flex gap-2">
+                <Button
+                  onClick={() => claimBailout()}
+                  size="sm"
+                  className="red-grad font-display font-bold tracking-widest text-white"
+                >
+                  <HandCoins className="mr-1.5 h-3.5 w-3.5" /> COLLECT ${BAILOUT_AMOUNT}
+                </Button>
+                <Button
+                  onClick={() => resetBankroll()}
+                  size="sm"
+                  variant="outline"
+                  className="border-white/15 bg-white/5 font-display text-[10px] font-bold tracking-widest text-zinc-400 hover:bg-white/10"
+                >
+                  <RotateCcw className="mr-1.5 h-3 w-3" /> RESET $100
+                </Button>
+              </div>
+            </div>
+          )}
+
+          {bailouts > 0 && (
+            <div className="flex items-center justify-between rounded-xl border border-[#e0b64c]/25 bg-[#e0b64c]/5 px-3 py-2">
+              <span className="flex items-center gap-1.5 text-[11px] text-zinc-400">
+                <HandCoins className="h-3.5 w-3.5 text-[#e0b64c]" /> EMERGENCY SPONSORSHIPS
+              </span>
+              <span className="num text-xs font-bold text-[#e0b64c]">
+                {bailouts}× · +${(bailouts * BAILOUT_AMOUNT).toFixed(2)}
+              </span>
             </div>
           )}
 

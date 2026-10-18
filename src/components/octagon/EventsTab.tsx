@@ -5,6 +5,7 @@ import { motion } from "framer-motion";
 import { toast } from "sonner";
 import { EVENTS, getFighter } from "@/lib/data";
 import { computeOdds, fmtOdds, simulateFight, resultSummary } from "@/lib/engine";
+import { maybeTransferBelt } from "@/lib/belts";
 import { useBetStore } from "@/lib/store";
 import { BoutSpec, useApp } from "./AppContext";
 import { FighterAvatar, Flag, RecordText } from "./shared";
@@ -116,6 +117,14 @@ function EventCard({ eventId, index }: { eventId: string; index: number }) {
         boutLabel: bout.label ?? `${a.name} vs ${b.name}`,
         text: note,
       });
+      // DYNAMIC CHAMPIONSHIPS — simulate a title upset and the belt moves
+      const belt = maybeTransferBelt(a, b, sim.winner);
+      if (belt) {
+        results.push({
+          boutLabel: "TITLE CHANGE",
+          text: `${belt.newChamp.name} dethrones ${belt.oldChamp.name} — new ${belt.divName} champion!`,
+        });
+      }
       // settle open bets on this bout
       for (const bet of openBets) {
         if (

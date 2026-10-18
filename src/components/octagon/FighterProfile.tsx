@@ -3,7 +3,7 @@
 import { useMemo } from "react";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { Fighter, FightLogEntry } from "@/lib/types";
-import { getFighter, FIGHTER_MAP } from "@/lib/data";
+import { getFighter, ensureFighter, DIVISION_MAP } from "@/lib/data";
 import { overallRating, currentStreak } from "@/lib/engine";
 import { useApp } from "./AppContext";
 import { FighterAvatar, Flag, DivisionChip, RankBadge, RecordText, WinMethodBar, AttributeBar, OvrBadge } from "./shared";
@@ -20,11 +20,24 @@ function methodShort(m: FightLogEntry["m"]): string {
   }
 }
 
-function LogRow({ entry }: { entry: FightLogEntry }) {
-  const opponent = FIGHTER_MAP[entry.op.toLowerCase().replace(/[.']/g, "").replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "")];
+// "LHW TITLE" / "INTERIM HW TITLE" / "VACANT LHW TITLE" — with the weight
+// class the fight was actually contested at.
+function titleText(entry: FightLogEntry, fighter: Fighter): string {
+  const kind =
+    entry.title === "I" || entry.title === "interim" ? "INTERIM " :
+    entry.title === "V" || entry.title === "vacant" ? "VACANT " : "";
+  const wc = DIVISION_MAP[entry.wc ?? fighter.division];
+  return `${kind}${wc.shortName} TITLE`;
+}
+
+function LogRow({ entry, fighter }: { entry: FightLogEntry; fighter: Fighter }) {
+  // every name in every record resolves — missing opponents are auto-added
+  // to the database on sight with a full generated career
+  const opponent = ensureFighter(entry.op, entry.wc ?? fighter.division);
   const { openProfile } = useApp();
   const isWin = entry.res === "W";
   const isLoss = entry.res === "L";
+  const wcDiv = DIVISION_MAP[entry.wc ?? fighter.division];
   const resColor =
     isWin ? "bg-emerald-500/15 text-emerald-400 border-emerald-500/40" :
     isLoss ? "bg-[#e5322d]/15 text-[#ff6b66] border-[#e5322d]/40" :
@@ -54,7 +67,7 @@ function LogRow({ entry }: { entry: FightLogEntry }) {
           )}
           {entry.title && (
             <span className="inline-flex items-center gap-1 rounded border border-[#e0b64c]/50 bg-[#e0b64c]/10 px-1.5 py-px text-[9px] font-display tracking-widest text-[#e0b64c]">
-              {entry.title === "interim" ? "INTERIM TITLE" : entry.title === "vacant" ? "VACANT TITLE" : "TITLE FIGHT"}
+              {titleText(entry, fighter)}
             </span>
           )}
           {entry.bonus && (
@@ -67,6 +80,13 @@ function LogRow({ entry }: { entry: FightLogEntry }) {
           <span className="truncate">{entry.ev}</span>
           <span className="text-zinc-700">·</span>
           <span className="num whitespace-nowrap">{entry.date}</span>
+          <span
+            className="rounded px-1 py-px text-[9px] font-bold tracking-wider"
+            style={{ color: wcDiv.color, background: `${wcDiv.color}1a`, border: `1px solid ${wcDiv.color}33` }}
+            title={`${wcDiv.name} — weight class of this fight`}
+          >
+            {wcDiv.shortName}
+          </span>
         </div>
       </div>
 
@@ -77,7 +97,7 @@ function LogRow({ entry }: { entry: FightLogEntry }) {
         </div>
         <div className="text-[11px] text-zinc-500 num">
           {entry.m === "UDEC" || entry.m === "SDEC" || entry.m === "MDEC"
-            ? "5:00"
+            ? `${entry.r} RDS`
             : `R${entry.r}${entry.t ? ` · ${entry.t}` : ""}`}
         </div>
         {entry.det && (
@@ -241,13 +261,13 @@ export function FighterProfileDialog() {
             </div>
             <div className="space-y-1.5">
               {log.map((entry, i) => (
-                <LogRow key={`${entry.op}-${entry.date}-${i}`} entry={entry} />
+                <LogRow key={`${entry.op}-${entry.date}-${i}`} entry={entry} fighter={fighter} />
               ))}
             </div>
             <p className="mt-3 text-[10px] leading-relaxed text-zinc-600">
               {fighter.status === "retired"
-                ? "Retired great — bout history reflects their real career; engine rating is prime-era. Fantasy-book them in the Fight Lab."
-                : "Recent bouts shown from an approximate historical database — records, rankings and Oct 2026 champions verified against official listings. Tap an opponent to open their file."}
+                ? "Complete UFC career on file — every bout with its weight class, method, round & title status. Engine rating is prime-era. Fantasy-book them in the Fight Lab."
+                : "Complete UFC bout history — every fight with its weight class, method, round & title status. Tap any opponent to open their file; anyone not yet in the database gets added on sight."}
             </p>
           </div>
         </div>

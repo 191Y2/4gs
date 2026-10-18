@@ -6,6 +6,7 @@ import { divisionRoster, DIVISIONS } from "@/lib/data";
 import { overallRating } from "@/lib/engine";
 import { DivisionId } from "@/lib/types";
 import { useApp } from "./AppContext";
+import { useBeltsVersion } from "@/lib/belts";
 import { FighterAvatar, Flag, RecordText, DivisionChip } from "./shared";
 import { Crown, ChevronDown } from "lucide-react";
 
@@ -112,6 +113,7 @@ function DivisionSection({ divId, index }: { divId: DivisionId; index: number })
 }
 
 export function DivisionsTab() {
+  useBeltsVersion(); // champion rows re-render the moment a belt changes hands
   const [gender, setGender] = useState<"men" | "women">("men");
   const divs = DIVISIONS.filter((d) => d.division === gender);
 

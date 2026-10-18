@@ -55,3 +55,24 @@ Stage Summary:
 - Roster: 190 → 506 fighters (71 HOF icons, 160 retired total, 346 active) across 11 divisions
 - New files: depth.ts (generator+lg/ret helpers), roster-legends.ts, roster-legends-2.ts, roster-legends-w.ts, roster-depth-1/2/3/w.ts
 - Fantasy matchmaking: retired legends bookable in Fight Lab with prime-era Elo; betting math unchanged and exact
+
+---
+Task ID: 4
+Agent: main
+Task: Betting fixes + bankruptcy bailout + way more fighters + complete records + weight classes per fight + auto-add missing opponents
+
+Work Log:
+- types.ts: FightLogEntry gained wc?: DivisionId (weight class each fight was contested at)
+- depth.ts rewritten: genLog now synthesizes FULL careers (all W-L fights, era-aware event labels back to 1994, wc on every entry, title arcs for elo>=1650/1750); new auto() builder; AUTO_POOL tuples (name,cc); POOLS merged w/ AUTO_POOL; fillCareer() backfills hand-written partial logs to full records (prepends deterministic pre-history; skips jon-jones by design)
+- roster-jones.ts: Jon Jones COMPLETE 24-fight UFC record (Gusmaao UFC 87 -> Miocic UFC 309) w/ per-fight wc (LHW->HW), title/interim/vacant flags, NC for UFC 214; + 8 missing opponents added (Gusmao, Bonnar, O'Brien, Hamill, Vera, Matyushenko, Bader, Reyes)
+- roster-fill.ts: +117 fighters — every previously-unresolved opponent name incl. legends (BJ Penn, Nate Diaz, Randy Couture, Fedor, Royce & Frank Shamrock, Frank Mir, Rumble, Mark Hunt, Bigfoot, Tim Sylvia, Ken Shamrock, Minotouro, Blachowicz, Rich Franklin, Jake Shields, Marlon Moraes, Demian Maia, MVP, Oleinik, Struve, Takanori Gomi, Kenny Florian...)
+- roster-auto.ts: AUTO_POOL -> ~300 deep-roster entries w/ full generated careers
+- index.ts: FILL+AUTO wired (dedupe first-wins), fillCareer loop for all, ALIASES (weili-zhang->zhang-weili, king-green->bobby-green, korean-zombie->chan-sung-jung, xiaonan-yan->yan-xiaonan), ensureFighter ghost auto-add + eager closure sweep (0 unresolved names), champions() became a live function
+- belts.ts (new): maybeTransferBelt + useBeltsVersion — active same-division champ who loses a sim transfers the belt instantly; hook mounted in Home/Divisions/Roster/FightLab tabs
+- store.ts: BANKRUPTCY BAILOUT — settleBet auto-grants $500 emergency sponsorship w/ toast when bankroll < 1; claimBailout + checkBailout on rehydrate; bailouts counter
+- BettingDialogs: quick-bets 5/10/25/50/100, broke-state COLLECT $500 UI, belt-transfer toast on sim settlement; EventsTab card sims report TITLE CHANGE rows; BetHistory shows EMERGENCY SPONSORSHIPS total; AppContext rehydrate->checkBailout
+- FighterProfile LogRow: weight-class chip per bout (division-colored), title badges read "LHW TITLE / INTERIM HW TITLE / VACANT LHW TITLE", opponents resolved via ensureFighter (every name clickable), "3 RDS"/"5 RDS" for decisions
+
+Stage Summary:
+- Roster: 506 -> 670 fighters, ZERO unresolved names in any record; median log length 23 bouts (full careers for everyone incl. previously-partial hand-written entries)
+- Verified with agent-browser: Jones profile = 24 fights w/ title+wc badges; O'Malley 4->22 fights; broke-wallet reload -> $500 bailout toast -> bankroll $500; $50 @ -200 paid exactly $25; Gane(champ) vs Aspinall sim -> Aspinall KO'd belt from Gane w/ "NEW CHAMPION" toast, Divisions tab re-rendered; mobile 390px no overflow; tsc clean, eslint clean, production build passes

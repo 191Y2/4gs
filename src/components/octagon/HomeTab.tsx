@@ -2,10 +2,11 @@
 
 import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
-import { CHAMPIONS, p4pList, RESULTS_TICKER, EVENTS, ROSTER, HOF_ICONS, LEGENDS, getFighter } from "@/lib/data";
+import { champions, p4pList, RESULTS_TICKER, EVENTS, ROSTER, HOF_ICONS, LEGENDS, getFighter } from "@/lib/data";
 import { overallRating, fmtOdds } from "@/lib/engine";
 import { useBetStore } from "@/lib/store";
 import { useApp } from "./AppContext";
+import { useBeltsVersion } from "@/lib/belts";
 import { FighterAvatar, Flag, RecordText, OvrBadge, DivisionChip } from "./shared";
 import { Button } from "@/components/ui/button";
 import { Crown, Swords, CalendarDays, TrendingUp, DollarSign, ArrowRight, Zap, Flame, Trophy } from "lucide-react";
@@ -61,6 +62,8 @@ export function HomeTab() {
   const { openProfile, setSimSpec, setBetSpec } = useApp();
   const { bankroll } = useBetStore();
   const { mounted } = useApp();
+  useBeltsVersion(); // crowns re-render the moment a belt changes hands
+  const CHAMPIONS = champions();
   const menP4P = p4pList("men");
   const womenP4P = p4pList("women");
   const nextEvent = EVENTS[0];

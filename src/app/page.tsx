@@ -137,7 +137,7 @@ function Shell() {
       <footer className="mt-auto hidden border-t border-white/10 bg-black/40 py-3 lg:block">
         <div className="mx-auto flex max-w-[1500px] items-center justify-between px-6 text-[9px] font-display tracking-[0.2em] text-zinc-600">
           <span>OCTAGON HQ · UNOFFICIAL FAN APP · NOT AFFILIATED WITH UFC</span>
-          <span>{ROSTER.length} FIGHTERS · ELO ENGINE v3 · $100 STARTING BANKROLL</span>
+          <span>{ROSTER.length} FIGHTERS · ELO ENGINE v3 · $100 START · $500 BAILOUTS · DYNAMIC BELTS</span>
         </div>
       </footer>
 

@@ -2,10 +2,11 @@
 
 import { useMemo, useState } from "react";
 import { Fighter } from "@/lib/types";
-import { CHAMPIONS, ROSTER } from "@/lib/data";
+import { champions, ROSTER } from "@/lib/data";
 import { computeOdds, overallRating, decimalFromAmerican, fmtOdds } from "@/lib/engine";
 import { useBetStore } from "@/lib/store";
 import { useApp } from "./AppContext";
+import { useBeltsVersion } from "@/lib/belts";
 import { FighterPickerDialog } from "./FighterPicker";
 import { FighterAvatar, Flag, RecordText, AttributeBar, DivisionChip } from "./shared";
 import { Button } from "@/components/ui/button";
@@ -92,6 +93,7 @@ function CompareRow({ label, a, b, higherWins = true }: { label: string; a: numb
 }
 
 export function FightLabTab() {
+  useBeltsVersion(); // crown styling stays live when belts move
   const [a, setA] = useState<Fighter | null>(null);
   const [b, setB] = useState<Fighter | null>(null);
   const [picking, setPicking] = useState<null | "A" | "B">(null);
@@ -111,7 +113,7 @@ export function FightLabTab() {
   };
 
   const superfight = () => {
-    const champs = CHAMPIONS;
+    const champs = champions();
     const ra = champs[Math.floor(Math.random() * champs.length)];
     let rb = champs[Math.floor(Math.random() * champs.length)];
     while (rb.id === ra.id) rb = champs[Math.floor(Math.random() * champs.length)];

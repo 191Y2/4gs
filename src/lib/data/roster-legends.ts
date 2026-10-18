@@ -4,20 +4,7 @@ import { lg, ret } from "./depth";
 // Careers & signature fights reflect their real UFC/WEC histories.
 
 export const HW_LEGENDS = [
-  lg("HW", 99, "Jon Jones", "Bones", "US", 28, 1, 0, 10, 7, 1, 39, `6'4"`, `85"`, "Jackson Wink MMA", "MMA", 1790,
-    92, 82, 94, 90, 96, 90, 88, [
-      { op: "Maurício Rua", ev: "UFC 128", date: "Mar 19, 2011", res: "W", m: "KO", r: 3, t: "2:37", det: "Punches & Knee", title: "T" },
-      { op: "Rashad Evans", ev: "UFC 145", date: "Apr 21, 2012", res: "W", m: "UDEC", r: 5, t: "5:00" },
-      { op: "Vitor Belfort", ev: "UFC 152", date: "Sep 22, 2012", res: "W", m: "SUB", r: 4, t: "1:00", det: "Americana", title: "T" },
-      { op: "Alexander Gustafsson", ev: "UFC 165", date: "Sep 21, 2013", res: "W", m: "UDEC", r: 5, t: "5:00", det: "The War of 2013", title: "T", bonus: "FOTN" },
-      { op: "Daniel Cormier", ev: "UFC 182", date: "Jan 3, 2015", res: "W", m: "UDEC", r: 5, t: "5:00", title: "T" },
-      { op: "Daniel Cormier", ev: "UFC 214", date: "Jul 29, 2017", res: "W", m: "KO", r: 3, t: "3:05", det: "Head Kick", title: "T" },
-      { op: "Daniel Cormier", ev: "UFC 220", date: "Jan 20, 2018", res: "W", m: "UDEC", r: 5, t: "5:00", title: "T" },
-      { op: "Thiago Santos", ev: "UFC 239", date: "Jul 6, 2019", res: "W", m: "SDEC", r: 5, t: "5:00", title: "T" },
-      { op: "Dominick Reyes", ev: "UFC 247", date: "Feb 8, 2020", res: "W", m: "UDEC", r: 5, t: "5:00", title: "T" },
-      { op: "Ciryl Gane", ev: "UFC 285", date: "Mar 4, 2023", res: "W", m: "SUB", r: 2, t: "2:04", det: "Guillotine", title: "T" },
-      { op: "Stipe Miocic", ev: "UFC 309", date: "Nov 16, 2024", res: "W", m: "KO", r: 3, t: "4:19", det: "Spinning Back Kick & Punches", title: "T" },
-    ]),
+  // Jon Jones lives in roster-jones.ts with his COMPLETE UFC record
   lg("HW", 99, "Stipe Miocic", null, "US", 20, 5, 0, 15, 1, 0, 43, `6'4"`, `80"`, "Strong Style", "Boxer", 1735,
     88, 90, 84, 78, 82, 84, 86, [
       { op: "Fabricio Werdum", ev: "UFC 198", date: "May 14, 2016", res: "W", m: "KO", r: 1, t: "2:47", det: "One-Two Counter", title: "T" },
@@ -46,7 +33,7 @@ export const HW_LEGENDS = [
       { op: "Anthony Johnson", ev: "UFC 187", date: "May 23, 2015", res: "W", m: "SUB", r: 3, t: "2:39", det: "Rear Naked Choke", title: "T" },
       { op: "Alexander Gustafsson", ev: "UFC 192", date: "Oct 3, 2015", res: "W", m: "UDEC", r: 5, t: "5:00", title: "T", bonus: "FOTN" },
       { op: "Anthony Johnson", ev: "UFC 210", date: "Apr 8, 2017", res: "W", m: "KO", r: 2, t: "3:37", det: "Punches", title: "T" },
-      { op: "Jon Jones", ev: "UFC 214", date: "Jul 29, 2017", res: "D", m: "UDEC", r: 3, t: "5:00", det: "Overturned — later ruled a No Contest", title: "T" },
+      { op: "Jon Jones", ev: "UFC 214", date: "Jul 29, 2017", res: "NC", m: "KO", r: 2, t: "3:01", det: "Overturned — Ruled a No Contest", title: "T" },
       { op: "Stipe Miocic", ev: "UFC 226", date: "Jul 7, 2018", res: "W", m: "KO", r: 1, t: "2:47", det: "Right Hand", title: "T" },
       { op: "Derrick Lewis", ev: "UFC 230", date: "Nov 3, 2018", res: "W", m: "SUB", r: 2, t: "2:14", det: "Rear Naked Choke", title: "T" },
       { op: "Stipe Miocic", ev: "UFC 241", date: "Aug 17, 2019", res: "L", m: "KO", r: 4, t: "4:09", det: "Body & Head Punches", title: "T" },

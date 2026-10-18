@@ -40,7 +40,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [betSpec, setBetSpec] = useState<{ spec: BoutSpec; side: "A" | "B" } | null>(null);
 
   useEffect(() => {
-    useBetStore.persist.rehydrate();
+    void Promise.resolve(useBetStore.persist.rehydrate()).then(() => {
+      // nobody stays broke — if a stale session left the wallet empty,
+      // the emergency sponsorship kicks in on load
+      useBetStore.getState().checkBailout();
+    });
     setMounted(true);
   }, []);
 
