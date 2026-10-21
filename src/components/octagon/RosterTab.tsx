@@ -32,12 +32,7 @@ function FighterTile({ fighter, i }: { fighter: Fighter; i: number }) {
           ) : (
             <RankBadge fighter={fighter} />
           )}
-          {fighter.status === "retired" && (
-            <span className="rounded border border-white/15 bg-white/5 px-1.5 py-px text-[8px] font-display tracking-widest text-zinc-500">
-              RETIRED
-            </span>
-          )}
-          {fighter.status !== "retired" && currentStreak(fighter) >= 3 && (
+          {currentStreak(fighter) >= 3 && (
             <span className="flex items-center gap-1 text-[9px] font-semibold text-emerald-400 num">
               <TrendingUp className="h-2.5 w-2.5" /> {currentStreak(fighter)} IN A ROW
             </span>
@@ -88,7 +83,7 @@ export function RosterTab() {
       <div>
         <h2 className="font-display text-2xl font-bold text-white">FIGHTER DATABASE</h2>
         <p className="mt-0.5 text-xs text-zinc-500">
-          {ROSTER.length} fighters · {LEGENDS.length} retired legends & Hall-of-Famers · full bout histories · tap any fighter
+          {ROSTER.length} fighters · {LEGENDS.length} legends & Hall-of-Famers — all in their prime · full bout histories · tap any fighter
         </p>
       </div>
 

@@ -135,7 +135,7 @@ export function HomeTab() {
             <div className="rounded-xl border border-white/10 bg-black/30 p-3">
               <div className="text-[9px] font-display tracking-[0.2em] text-zinc-500">FIGHTERS ON FILE</div>
               <div className="num font-display text-2xl font-bold text-white">{ROSTER.length}</div>
-              <div className="text-[9px] text-zinc-600">{LEGENDS.length} retired legends included</div>
+              <div className="text-[9px] text-zinc-600">{LEGENDS.length} legends included — all in their prime</div>
             </div>
           </div>
 

@@ -18,6 +18,7 @@ import {
   eventDisplayName,
   eventTagline,
   events,
+  effectiveRounds,
   hqRankLabel,
   isoOf,
   isTitleBout,
@@ -332,7 +333,7 @@ function BoutRow({ ev, bout, index }: { ev: SimEvent; bout: SimEventBout; index:
   const sectionList = eventBouts(ev, bout.section);
 
   const quickSim = () => {
-    const sim = simulateFight(a, b, bout.rounds);
+    const sim = simulateFight(a, b, effectiveRounds(bout, a, b));
     const outcome = recordEventBout(ev.id, bout.id, sim);
     if (outcome) {
       toast.success(outcome.note);
@@ -350,7 +351,7 @@ function BoutRow({ ev, bout, index }: { ev: SimEvent; bout: SimEventBout; index:
     aId: a.id,
     bId: b.id,
     label,
-    rounds: bout.rounds,
+    rounds: effectiveRounds(bout, a, b),
     source: { eventId: ev.id, boutId: bout.id },
     title: isTitle ? "Championship Bout" : undefined,
   };
@@ -574,7 +575,7 @@ function EventCard({ ev }: { ev: SimEvent }) {
         const a = getFighter(bout.aId)!;
         const b = getFighter(bout.bId)!;
         if (!a || !b) continue;
-        const sim = simulateFight(a, b, bout.rounds);
+        const sim = simulateFight(a, b, effectiveRounds(bout, a, b));
         const outcome = recordEventBout(ev.id, bout.id, sim);
         if (outcome) {
           if (outcome.belt) {

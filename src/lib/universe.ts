@@ -136,11 +136,19 @@ function boutWeightClass(a: Fighter, b: Fighter): DivisionId {
     : b.division;
 }
 
-// same-division bout with an active reigning champion = title fight
+// same-division bout with a reigning champion = title fight. Legends
+// (status "retired") fight in this universe too — booked against the champ
+// it's a title fight and the belt CAN move, same as anyone else.
 export function isTitleBout(a: Fighter, b: Fighter): boolean {
   if (a.division !== b.division) return false;
-  if (a.status === "retired" || b.status === "retired") return false;
   return !!(a.isChampion || b.isChampion);
+}
+
+// rounds a bout should be fought at TODAY — the belt may have moved onto
+// (or off) one of these fighters after the bout was booked, and title
+// bouts are always 5 rounds
+export function effectiveRounds(bout: SimEventBout, a: Fighter, b: Fighter): 3 | 5 {
+  return bout.title || isTitleBout(a, b) ? 5 : bout.rounds;
 }
 
 function sectionLabel(bout: SimEventBout, ev: SimEvent): string {

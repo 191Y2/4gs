@@ -13,7 +13,6 @@ import { Crown, ChevronDown } from "lucide-react";
 function DivisionSection({ divId, index }: { divId: DivisionId; index: number }) {
   const { openProfile } = useApp();
   const standings = divisionStandings(divId);
-  const legendCount = standings.filter((s) => s.fighter.status === "retired").length;
   const champ = standings.find((s) => s.rank === "C");
   const contenders = standings.filter((s) => s.rank !== "C");
   const div = DIVISIONS.find((d) => d.id === divId)!;
@@ -39,7 +38,7 @@ function DivisionSection({ divId, index }: { divId: DivisionId; index: number })
             <div>
               <h3 className="font-display text-base font-bold text-white">{div.name.toUpperCase()}</h3>
               <p className="text-[10px] text-zinc-500">
-                {standings.length} fighters{legendCount > 0 ? ` · ${legendCount} retired legends` : ""} · limit {div.limit} lb
+                {standings.length} fighters · limit {div.limit} lb
               </p>
             </div>
           </div>

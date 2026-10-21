@@ -50,7 +50,7 @@ export interface Fighter {
   // Everyone starts 0-0; Fight Lab bookings never touch these.
   simW?: number; simL?: number; simD?: number;
   elo: number;         // curated engine rating
-  status?: "active" | "retired"; // retired = legends & vets no longer fighting
+  status?: "active" | "retired"; // everyone fights in their prime — always "active" after load
   legend?: boolean;    // Hall-of-Fame icon badge
   // 0-100 attributes drive the simulator
   str: number;   // striking technique & output

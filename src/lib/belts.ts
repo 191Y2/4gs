@@ -50,7 +50,8 @@ export function maybeTransferBelt(
 ): BeltChange | null {
   if (winner !== "A" && winner !== "B") return null;
   if (a.division !== b.division) return null;
-  if (a.status === "retired" || b.status === "retired") return null;
+  // retired legends CAN take belts in this universe — status is just a HOF
+  // marker, and a champ losing to anyone (legend or not) drops the belt
   const champ = a.isChampion ? a : b.isChampion ? b : null;
   if (!champ) return null;
   const win = winner === "A" ? a : b;

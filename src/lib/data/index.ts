@@ -10,8 +10,14 @@ export { DIVISIONS, DIVISION_MAP } from "./core";
 // careers, legends, every opponent referenced in any record) is PREBUILT at
 // dump time — see /api/roster-dump. Loading the JSON directly means zero
 // runtime career generation, which is what makes the app load instantly.
+//
+// In this universe NOBODY is retired — every legend fights in their prime
+// (status normalized to "active" for all 670). The source "retired" flag is
+// kept below only to drive the LEGENDS showcase list.
+const RAW = (prebuilt as { fighters: Fighter[] }).fighters;
+const LEGEND_IDS = new Set(RAW.filter((f) => f.status === "retired").map((f) => f.id));
 
-export const ROSTER: Fighter[] = (prebuilt as { fighters: Fighter[] }).fighters;
+export const ROSTER: Fighter[] = RAW.map((f) => ({ ...f, status: "active" as const }));
 
 export const FIGHTER_MAP: Record<string, Fighter> = Object.fromEntries(
   ROSTER.map((f) => [f.id, f])
@@ -45,8 +51,9 @@ export function ensureFighter(name: string, division?: DivisionId): Fighter | un
   const canonical = ALIASES[id] ?? id;
   const existing = FIGHTER_MAP[canonical];
   if (existing) return existing;
-  const ghost = auto(division ?? "HW", clean, "US", { retired: true });
+  const ghost = auto(division ?? "HW", clean, "US", {});
   ghost.rank = null;
+  ghost.status = "active";
   GHOSTS.push(ghost);
   ROSTER.push(ghost);
   FIGHTER_MAP[ghost.id] = ghost;
@@ -71,13 +78,14 @@ export function champions(): Fighter[] {
   return ROSTER.filter((f) => f.isChampion);
 }
 
-// Hall-of-Fame icons & retired greats (for the Legends filter & showcases)
-export const LEGENDS: Fighter[] = ROSTER.filter((f) => f.status === "retired");
+// Legends showcase — HOF icons plus the veteran greats (everyone fights in
+// their prime here, "legend" is a showcase label, not a retirement)
+export const LEGENDS: Fighter[] = ROSTER.filter((f) => LEGEND_IDS.has(f.id));
 export const HOF_ICONS: Fighter[] = ROSTER.filter((f) => f.legend);
 
 export function p4pList(division: "men" | "women"): Fighter[] {
   return ROSTER.filter(
-    (f) => DIVISION_MAP[f.division].division === division && f.status !== "retired"
+    (f) => DIVISION_MAP[f.division].division === division
   )
     .sort((a, b) => b.elo - a.elo)
     .slice(0, 10);
@@ -92,7 +100,7 @@ export function searchFighters(
   if (division && division !== "all") list = list.filter((f) => f.division === division);
   if (filter === "ranked") list = list.filter((f) => f.isChampion || (f.rank !== null && f.rank <= 15));
   if (filter === "champions") list = list.filter((f) => f.isChampion);
-  if (filter === "legends") list = list.filter((f) => f.status === "retired");
+  if (filter === "legends") list = list.filter((f) => LEGEND_IDS.has(f.id));
   const q = query.trim().toLowerCase();
   if (q) {
     list = list.filter(

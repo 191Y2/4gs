@@ -165,11 +165,6 @@ export function FighterProfileDialog() {
                       <Medal className="h-3 w-3" /> HALL OF FAME
                     </span>
                   )}
-                  {fighter.status === "retired" && !fighter.legend && (
-                    <span className="inline-flex items-center gap-1 rounded border border-white/15 bg-white/5 px-2 py-0.5 text-[10px] font-display tracking-widest text-zinc-400">
-                      RETIRED
-                    </span>
-                  )}
                 </div>
                 <h2 className="mt-1.5 font-display text-3xl font-bold leading-none text-white">
                   {fighter.name}
@@ -218,9 +213,6 @@ export function FighterProfileDialog() {
             <div className="rounded-xl border border-white/10 bg-gradient-to-b from-white/[0.05] to-transparent p-3">
               <div className="text-[9px] font-display tracking-[0.2em] text-zinc-500">ENGINE ELO</div>
               <div className="mt-1 font-display text-2xl font-bold text-zinc-100 num">{fighter.elo}</div>
-              {fighter.status === "retired" && (
-                <div className="text-[9px] text-zinc-600">prime-era rating</div>
-              )}
             </div>
             <div className="rounded-xl border border-white/10 bg-gradient-to-b from-white/[0.05] to-transparent p-3 sm:hidden">
               <div className="flex items-center justify-between">
@@ -284,9 +276,7 @@ export function FighterProfileDialog() {
               ))}
             </div>
             <p className="mt-3 text-[10px] leading-relaxed text-zinc-600">
-              {fighter.status === "retired"
-                ? "Complete UFC career on file — every bout with its weight class, method, round & title status. Engine rating is prime-era. Fantasy-book them in the Fight Lab."
-                : "Complete UFC bout history — every fight with its weight class, method, round & title status. OCTAGONHQ-tagged fights happened on your universe events; tap any opponent to open their file."}
+              Complete UFC bout history — every fight with its weight class, method, round & title status. OCTAGONHQ-tagged fights happened on your universe events; tap any opponent to open their file.
             </p>
           </div>
         </div>
