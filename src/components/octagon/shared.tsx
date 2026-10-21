@@ -3,6 +3,7 @@
 import { Fighter } from "@/lib/types";
 import { DIVISION_MAP } from "@/lib/data";
 import { overallRating } from "@/lib/engine";
+import { hqRankLabel } from "@/lib/universe";
 import { Crown } from "lucide-react";
 
 // ---------- Flag (works on Windows, unlike flag emoji) ----------
@@ -91,19 +92,20 @@ export function DivisionChip({ division, className = "" }: { division: string; c
   );
 }
 
-// ---------- Rank badge ----------
+// ---------- Rank badge (LIVE OCTAGONHQ rank — matches the rankings tab) ----------
 export function RankBadge({ fighter }: { fighter: Fighter }) {
-  if (fighter.isChampion) {
+  const label = hqRankLabel(fighter.id);
+  if (label === "C") {
     return (
       <span className="inline-flex items-center gap-1 rounded bg-[#e0b64c]/15 border border-[#e0b64c]/50 px-1.5 py-0.5 text-[10px] font-display tracking-widest text-[#e0b64c]">
         <Crown className="h-3 w-3" /> CHAMPION
       </span>
     );
   }
-  if (fighter.rank && fighter.rank <= 15) {
+  if (label !== "UNRANKED") {
     return (
       <span className="inline-flex items-center rounded bg-white/5 border border-white/15 px-1.5 py-0.5 text-[10px] font-display tracking-widest text-zinc-300">
-        #{fighter.rank}
+        {label}
       </span>
     );
   }

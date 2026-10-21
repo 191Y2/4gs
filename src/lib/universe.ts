@@ -561,13 +561,26 @@ export function divisionStandings(div: DivisionId): Standing[] {
 
 // OCTAGONHQ rank label for a fighter: "C" (champ), "#1".."#15", or "UNRANKED".
 // Mirrors DivisionsTab — only the top 15 contenders are ranked.
+// Cached per universe version so bulk consumers (picker sort) stay instant.
+let rankLabelCache: { version: number; map: Map<string, string> } | null = null;
+
+export function hqRankMap(): Map<string, string> {
+  if (rankLabelCache && rankLabelCache.version === version) return rankLabelCache.map;
+  const map = new Map<string, string>();
+  for (const d of Object.keys(DIVISION_MAP) as DivisionId[]) {
+    for (const s of divisionStandings(d)) {
+      map.set(s.fighter.id, s.rank === "C" ? "C" : s.rank <= 15 ? `#${s.rank}` : "UNRANKED");
+    }
+  }
+  rankLabelCache = { version, map };
+  return map;
+}
+
 export function hqRankLabel(fighterId: string): string {
   const f = ROSTER.find((x) => x.id === fighterId);
   if (!f) return "UNRANKED";
   if (f.isChampion) return "C";
-  const st = divisionStandings(f.division).find((s) => s.fighter.id === f.id);
-  if (!st || st.rank === "C" || st.rank > 15) return "UNRANKED";
-  return `#${st.rank}`;
+  return hqRankMap().get(f.id) ?? "UNRANKED";
 }
 
 // division roster for standings

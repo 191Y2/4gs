@@ -10,6 +10,7 @@ import {
   currentWeekEvent,
   eventBouts,
   eventDisplayName,
+  hqRankLabel,
   isoOf,
   prettyDate,
   simP4P,
@@ -306,7 +307,7 @@ export function HomeTab() {
                   <FighterAvatar fighter={f} size="sm" />
                   <span className="min-w-0 flex-1">
                     <span className="block truncate text-sm font-semibold text-zinc-200 group-hover:text-white">{f.name}</span>
-                    <span className="text-[10px] text-zinc-500">{f.isChampion ? "CHAMPION" : f.rank && f.rank <= 15 ? `#${f.rank}` : "UNRANKED"} · <RecordText fighter={f} /></span>
+                    <span className="text-[10px] text-zinc-500">{hqRankLabel(f.id) === "C" ? "CHAMPION" : hqRankLabel(f.id) === "UNRANKED" ? "UNRANKED" : hqRankLabel(f.id)} · <RecordText fighter={f} /></span>
                   </span>
                   <span className={`num font-display text-lg font-bold ${i === 0 ? "text-[#e0b64c]" : "text-zinc-500"}`}>
                     {overallRating(f)}

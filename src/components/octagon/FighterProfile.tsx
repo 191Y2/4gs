@@ -5,7 +5,7 @@ import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { Fighter, FightLogEntry } from "@/lib/types";
 import { getFighter, ensureFighter, DIVISION_MAP } from "@/lib/data";
 import { overallRating, currentStreak } from "@/lib/engine";
-import { simRecord } from "@/lib/universe";
+import { simRecord, useUniverseVersion } from "@/lib/universe";
 import { useApp } from "./AppContext";
 import { FighterAvatar, Flag, DivisionChip, RankBadge, RecordText, WinMethodBar, AttributeBar, OvrBadge } from "./shared";
 import { Crown, MapPin, Users, Ruler, Trophy, Star, Swords, TrendingUp, X, Medal } from "lucide-react";
@@ -132,6 +132,7 @@ function TaleCell({ icon, label, value }: { icon: React.ReactNode; label: string
 
 export function FighterProfileDialog() {
   const { profileId, closeProfile } = useApp();
+  useUniverseVersion(); // live HQ rank/record refresh while open
   const fighter: Fighter | null = profileId ? getFighter(profileId) ?? null : null;
   const log = useMemo(() => (fighter ? [...fighter.log].reverse() : []), [fighter]);
 

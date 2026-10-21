@@ -9,7 +9,8 @@ import { Search, X, Crown, Star, Zap } from "lucide-react";
 import { searchFighters, DIVISIONS } from "@/lib/data";
 import { Fighter, DivisionId } from "@/lib/types";
 import { overallRating } from "@/lib/engine";
-import { FighterAvatar, Flag, RecordText, RankBadge } from "./shared";
+import { hqRankLabel, useUniverseVersion } from "@/lib/universe";
+import { FighterAvatar, Flag, RecordText } from "./shared";
 
 interface FighterPickerProps {
   open: boolean;
@@ -20,19 +21,45 @@ interface FighterPickerProps {
   onSelect: (f: Fighter) => void;
 }
 
+// rank chip driven by the LIVE OCTAGONHQ standings — updates after every
+// universe bout so the picker never disagrees with the rankings tab
+function HqRankChip({ fighter }: { fighter: Fighter }) {
+  const label = hqRankLabel(fighter.id);
+  if (label === "C") {
+    return (
+      <span className="inline-flex shrink-0 items-center gap-0.5 rounded border border-[#e0b64c]/60 bg-[#e0b64c]/15 px-1.5 py-0.5 text-[9px] font-display font-bold tracking-widest text-[#e0b64c]">
+        <Crown className="h-2.5 w-2.5" />CHAMP
+      </span>
+    );
+  }
+  if (label === "UNRANKED") {
+    return (
+      <span className="inline-flex shrink-0 items-center rounded border border-white/10 bg-white/[0.03] px-1.5 py-0.5 text-[9px] font-display tracking-widest text-zinc-600">
+        UNRANKED
+      </span>
+    );
+  }
+  return (
+    <span className="num inline-flex shrink-0 items-center rounded border border-white/20 bg-white/[0.07] px-1.5 py-0.5 text-[10px] font-bold text-zinc-200">
+      {label}
+    </span>
+  );
+}
+
 export function FighterPickerDialog({
   open,
   onOpenChange,
   title,
   excludeIds = [],
-  defaultDivision = "all",
+  defaultDivision = "HW",
   onSelect,
 }: FighterPickerProps) {
+  useUniverseVersion(); // re-render when HQ ranks/records change
   const [query, setQuery] = useState("");
   const [division, setDivision] = useState<DivisionId | "all">(defaultDivision);
   const [filter, setFilter] = useState<"all" | "ranked" | "champions">("all");
 
-  // reset search whenever the picker re-opens
+  // reset search whenever the picker re-opens (keep last division)
   useEffect(() => {
     if (open) {
       setQuery("");
@@ -40,10 +67,22 @@ export function FighterPickerDialog({
     }
   }, [open]);
 
-  const list = useMemo(
-    () => searchFighters(query, division, filter).filter((f) => !excludeIds.includes(f.id)),
-    [query, division, filter, excludeIds]
-  );
+  const list = useMemo(() => {
+    let l = searchFighters(query, division, filter).filter((f) => !excludeIds.includes(f.id));
+    // HQ-aware filters: ranked = top-15 OCTAGONHQ, champions = current HQ champs
+    if (filter === "ranked") l = l.filter((f) => /^#/.test(hqRankLabel(f.id)));
+    if (filter === "champions") l = l.filter((f) => hqRankLabel(f.id) === "C");
+    // sort: HQ champ first, then HQ rank, then OVR (keeps picker in sync with the rankings tab)
+    l = [...l].sort((a, b) => {
+      const ra = hqRankLabel(a.id);
+      const rb = hqRankLabel(b.id);
+      const na = ra === "C" ? 0 : ra === "UNRANKED" ? 999 : parseInt(ra.slice(1), 10);
+      const nb = rb === "C" ? 0 : rb === "UNRANKED" ? 999 : parseInt(rb.slice(1), 10);
+      if (na !== nb) return na - nb;
+      return overallRating(b) - overallRating(a);
+    });
+    return l;
+  }, [query, division, filter, excludeIds]);
 
   const menDivs = DIVISIONS.filter((d) => d.division === "men");
   const womenDivs = DIVISIONS.filter((d) => d.division === "women");
@@ -57,7 +96,7 @@ export function FighterPickerDialog({
           <div className="flex items-center justify-between">
             <h2 className="font-display text-lg font-bold text-white">{title}</h2>
             <span className="text-[10px] font-display tracking-widest text-zinc-500">
-              {list.length} FIGHTERS
+              {list.length} FIGHTERS · OCTAGONHQ RANKS
             </span>
           </div>
           <div className="relative mt-3">
@@ -75,14 +114,6 @@ export function FighterPickerDialog({
             )}
           </div>
           <div className="mt-3 flex flex-wrap items-center gap-1.5">
-            <button
-              onClick={() => setDivision("all")}
-              className={`rounded-md px-2.5 py-1 text-[11px] font-display font-semibold tracking-wider ${
-                division === "all" ? "red-grad text-white" : "border border-white/10 bg-white/5 text-zinc-400 hover:text-white"
-              }`}
-            >
-              ALL
-            </button>
             {[...menDivs, ...womenDivs].map((d) => (
               <button
                 key={d.id}
@@ -95,6 +126,15 @@ export function FighterPickerDialog({
                 {d.shortName}
               </button>
             ))}
+            {/* ALL kept at the very end — 670 rows is a lot, divisions first */}
+            <button
+              onClick={() => setDivision("all")}
+              className={`rounded-md px-2.5 py-1 text-[11px] font-display font-semibold tracking-wider ${
+                division === "all" ? "bg-white text-black" : "border border-white/10 bg-white/5 text-zinc-500 hover:text-white"
+              }`}
+            >
+              ALL
+            </button>
             <div className="ml-auto flex items-center gap-1">
               {(["all", "ranked", "champions"] as const).map((f) => (
                 <button
@@ -138,7 +178,7 @@ export function FighterPickerDialog({
                   </div>
                 </div>
                 <div className="flex flex-col items-end gap-1">
-                  <RankBadge fighter={f} />
+                  <HqRankChip fighter={f} />
                   <span className="flex items-center gap-1 text-[10px] num text-zinc-500">
                     <Zap className="h-2.5 w-2.5 text-[#e0b64c]" /> {overallRating(f)} OVR
                   </span>
