@@ -110,14 +110,36 @@ function pickFinishRound(f: Fighter, loser: Fighter, method: WinMethod): number 
 }
 
 function sampleMethod(winner: Fighter, loser: Fighter): { method: WinMethod; det?: string } {
-  const koRate = winner.ko / Math.max(1, winner.ko + winner.sub + winner.dec);
-  const subRate = winner.sub / Math.max(1, winner.ko + winner.sub + winner.dec);
-  // durable opponent lowers KO chance; slick grappler lowers sub... simplify via chin/gr
-  const koAdj = koRate * (1 - (loser.chin - 70) / 250);
-  const subAdj = subRate * (1 - (loser.tdd - 70) / 300);
+  const wins = Math.max(1, winner.ko + winner.sub + winner.dec);
+  const koRate = winner.ko / wins;
+  const subRate = winner.sub / wins;
+  // STYLE GATE — attributes decide what this fighter can actually pull off
+  // tonight. The career split says how he USUALLY wins; the gate says what
+  // his tools allow. A pure striker with 36 grappling never chokes out a
+  // grappler of Jon Jones' caliber no matter what his regional record says;
+  // a wrestler with no submission game never taps anyone. This is what
+  // keeps Ngannou a KO machine instead of a submission artist.
+  const koGate = 0.35 + 0.65 * (winner.pow / 100);
+  const subGate = Math.pow(winner.gr / 100, 2) * (0.55 + 0.45 * (winner.wr / 100));
+  // DOMINANCE — you finish people you outclass in that discipline. To tap
+  // someone you need a real grappling edge over HIM, not just a decent
+  // guard; to flatline him your power has to beat his chin.
+  const grGap = winner.gr - loser.gr;
+  const subDom = grGap >= 25 ? 1.15 : grGap >= 10 ? 1.0 : grGap >= 0 ? 0.5 : 0.18;
+  const powGap = winner.pow - loser.chin;
+  const koDom = powGap >= 20 ? 1.1 : powGap >= 5 ? 1.0 : powGap >= -10 ? 0.75 : 0.45;
+  // opponent resistance — iron chin lowers KO odds, slick guard lowers subs
+  const koAdj = koGate * (1 - Math.max(0, loser.chin - 75) / 220) * koDom;
+  const subAdj = subGate * Math.max(0.3, 1 - Math.max(0, loser.gr - 60) / 150) * subDom;
+  let koP = Math.min(0.78, Math.max(0.03, koRate * koAdj));
+  let subP = Math.min(0.55, Math.max(0.01, subRate * subAdj));
+  // decisions must stay possible for everyone
+  if (koP + subP > 0.85) {
+    const scale = 0.85 / (koP + subP);
+    koP *= scale;
+    subP *= scale;
+  }
   const roll = Math.random();
-  const koP = Math.max(0.03, Math.min(0.72, koAdj));
-  const subP = Math.max(0.02, Math.min(0.5, subAdj));
   if (roll < koP) {
     return { method: "KO", det: koDetail(winner) };
   }

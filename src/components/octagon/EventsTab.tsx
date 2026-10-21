@@ -39,6 +39,7 @@ import {
 import { BoutSpec, useApp } from "./AppContext";
 import { FighterPickerDialog } from "./FighterPicker";
 import { FighterAvatar, RecordText, OddsChip } from "./shared";
+import { isSuperfight, champDivisions } from "@/lib/belts";
 import { Button } from "@/components/ui/button";
 import {
   CalendarDays, Plus, Play, Eye, ChevronUp, ChevronDown, X, Crown,
@@ -121,7 +122,13 @@ function cardToText(ev: SimEvent): string {
       const div = DIVISION_MAP[a.division];
       const odds = computeOdds(a, b);
       const tags: string[] = [];
-      if (bout.title) tags.push(`${div.name.toUpperCase()} TITLE`);
+      if (isSuperfight(a, b)) {
+        const beltsA = champDivisions(a);
+        const beltsB = champDivisions(b);
+        tags.push(`SUPERFIGHT · ${[...beltsA, ...beltsB].map((d) => DIVISION_MAP[d].shortName).join(" & ")} TITLES`);
+      } else if (bout.title) {
+        tags.push(`${div.name.toUpperCase()} TITLE`);
+      }
       if (bout.rounds === 5 && !bout.title) tags.push("5 RDS");
       const head = `#${n}. ${tags.length ? `[${tags.join(" · ")}] ` : ""}${a.name} vs ${b.name}`;
       lines.push(head);
@@ -284,7 +291,11 @@ function BoutBuilder({
 
       {a && b && (
         <div className="rounded-lg border border-white/10 bg-white/[0.03] px-3 py-2 text-center text-[11px] text-zinc-400">
-          {isTitleBout(a, b) ? (
+          {isSuperfight(a, b) ? (
+            <span className="font-display font-bold tracking-widest text-[#e0b64c]">
+              <Crown className="mr-1 inline h-3 w-3" /> CHAMPIONSHIP SUPERFIGHT — BOTH TITLES ON THE LINE — 5 ROUNDS
+            </span>
+          ) : isTitleBout(a, b) ? (
             <span className="font-display font-bold tracking-widest text-[#e0b64c]">
               <Crown className="mr-1 inline h-3 w-3" /> CHAMPIONSHIP BOUT — 5 ROUNDS
             </span>
@@ -330,6 +341,7 @@ function BoutRow({ ev, bout, index }: { ev: SimEvent; bout: SimEventBout; index:
   const winner = bout.result?.winner === "A" ? a : bout.result?.winner === "B" ? b : null;
   const loser = bout.result?.winner === "A" ? b : bout.result?.winner === "B" ? a : null;
   const isTitle = bout.title || isTitleBout(a, b);
+  const superfight = isSuperfight(a, b);
   const sectionList = eventBouts(ev, bout.section);
 
   const quickSim = () => {
@@ -337,9 +349,9 @@ function BoutRow({ ev, bout, index }: { ev: SimEvent; bout: SimEventBout; index:
     const outcome = recordEventBout(ev.id, bout.id, sim);
     if (outcome) {
       toast.success(outcome.note);
-      if (outcome.belt) {
+      for (const belt of outcome.belts) {
         toast.success(
-          `NEW CHAMPION! ${outcome.belt.newChamp.name} dethrones ${outcome.belt.oldChamp.name} — the ${outcome.belt.divName} belt changes hands!`,
+          `NEW CHAMPION! ${belt.newChamp.name} dethrones ${belt.oldChamp.name} — the ${belt.divName} belt changes hands!`,
           { duration: 7000 }
         );
       }
@@ -353,7 +365,7 @@ function BoutRow({ ev, bout, index }: { ev: SimEvent; bout: SimEventBout; index:
     label,
     rounds: effectiveRounds(bout, a, b),
     source: { eventId: ev.id, boutId: bout.id },
-    title: isTitle ? "Championship Bout" : undefined,
+    title: superfight ? "Superfight — Both Titles" : isTitle ? "Championship Bout" : undefined,
   };
 
   return (
@@ -372,7 +384,12 @@ function BoutRow({ ev, bout, index }: { ev: SimEvent; bout: SimEventBout; index:
           }`}>
             {boutSectionLabel(ev, bout)}
           </span>
-          {isTitle && (
+          {superfight && (
+            <span className="inline-flex items-center gap-1 rounded border border-[#e0b64c]/70 bg-gradient-to-r from-[#e0b64c]/25 to-[#e0b64c]/5 px-1.5 py-px text-[9px] font-display font-bold tracking-widest text-[#e0b64c]">
+              <Crown className="h-2.5 w-2.5" /> SUPERFIGHT · BOTH TITLES
+            </span>
+          )}
+          {isTitle && !superfight && (
             <span className="inline-flex items-center gap-1 rounded border border-[#e0b64c]/50 bg-[#e0b64c]/10 px-1.5 py-px text-[9px] font-display tracking-widest text-[#e0b64c]">
               <Crown className="h-2.5 w-2.5" /> TITLE
             </span>
@@ -578,10 +595,10 @@ function EventCard({ ev }: { ev: SimEvent }) {
         const sim = simulateFight(a, b, effectiveRounds(bout, a, b));
         const outcome = recordEventBout(ev.id, bout.id, sim);
         if (outcome) {
-          if (outcome.belt) {
+          for (const belt of outcome.belts) {
             belts++;
             toast.success(
-              `NEW CHAMPION! ${outcome.belt.newChamp.name} dethrones ${outcome.belt.oldChamp.name} — the ${outcome.belt.divName} belt changes hands!`,
+              `NEW CHAMPION! ${belt.newChamp.name} dethrones ${belt.oldChamp.name} — the ${belt.divName} belt changes hands!`,
               { duration: 7000 }
             );
           }

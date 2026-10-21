@@ -284,9 +284,9 @@ export function FightSimDialog() {
       if (outcome) {
         recorded = true;
         toast.success(`${outcome.note}`, { duration: 5000 });
-        if (outcome.belt) {
+        for (const belt of outcome.belts) {
           toast.success(
-            `NEW CHAMPION! ${outcome.belt.newChamp.name} dethrones ${outcome.belt.oldChamp.name} — the ${outcome.belt.divName} belt changes hands!`,
+            `NEW CHAMPION! ${belt.newChamp.name} dethrones ${belt.oldChamp.name} — the ${belt.divName} belt changes hands!`,
             { duration: 7000 }
           );
         }

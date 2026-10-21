@@ -1,6 +1,7 @@
 import { Fighter, DivisionId } from "../types";
 import { DIVISIONS, DIVISION_MAP } from "./core";
 import { auto, slug } from "./depth";
+import { applyRatingPatches } from "./ratings";
 import prebuilt from "./roster.prebuilt.json";
 
 export { DIVISIONS, DIVISION_MAP } from "./core";
@@ -18,6 +19,9 @@ const RAW = (prebuilt as { fighters: Fighter[] }).fighters;
 const LEGEND_IDS = new Set(RAW.filter((f) => f.status === "retired").map((f) => f.id));
 
 export const ROSTER: Fighter[] = RAW.map((f) => ({ ...f, status: "active" as const }));
+// curated prime ratings for the big names — champions, contenders, legends,
+// fan favorites (fixes generator nonsense like Ngannou's 68 grappling)
+applyRatingPatches(ROSTER);
 
 export const FIGHTER_MAP: Record<string, Fighter> = Object.fromEntries(
   ROSTER.map((f) => [f.id, f])

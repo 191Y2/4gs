@@ -1,0 +1,666 @@
+     1→"use client";
+     2→
+     3→import { useEffect, useMemo, useRef, useState } from "react";
+     4→import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
+     5→import { toast } from "sonner";
+     6→import { getFighter } from "@/lib/data";
+     7→import { computeOdds, decimalFromAmerican, fmtOdds, simulateFight, SimResult, resultSummary, probFromAmerican, SimRound } from "@/lib/engine";
+     8→import { recordEventBout } from "@/lib/universe";
+     9→import { useBetStore, BAILOUT_AMOUNT } from "@/lib/store";
+    10→import { BoutSpec, useApp } from "./AppContext";
+    11→import { FighterAvatar, Flag, OddsChip, RecordText } from "./shared";
+    12→import { Button } from "@/components/ui/button";
+    13→import { Input } from "@/components/ui/input";
+    14→import { Zap, DollarSign, Trophy, Calculator, Play, RotateCcw, Check, X, HandCoins, FastForward, SkipForward, Radio } from "lucide-react";
+    15→
+    16→// ---------- odds helpers ----------
+    17→export function useBout(spec: BoutSpec | null) {
+    18→  return useMemo(() => {
+    19→    if (!spec) return null;
+    20→    const a = getFighter(spec.aId);
+    21→    const b = getFighter(spec.bId);
+    22→    if (!a || !b) return null;
+    23→    const engine = computeOdds(a, b, spec.houseA, spec.houseB);
+    24→    let pA = engine.pA;
+    25→    let fromMarket = false;
+    26→    if (spec.houseA != null && spec.houseB != null) {
+    27→      const ph = probFromAmerican(spec.houseA);
+    28→      const pb = probFromAmerican(spec.houseB);
+    29→      // de-vig the market — this is what the house line really says
+    30→      pA = ph / (ph + pb);
+    31→      fromMarket = true;
+    32→    }
+    33→    return { a, b, engine, pA, fromMarket };
+    34→  }, [spec]);
+    35→}
+    36→
+    37→// ---------- Bet placement dialog ----------
+    38→export function BetDialog() {
+    39→  const { betSpec, setBetSpec } = useApp();
+    40→  if (!betSpec) {
+    41→    return <Dialog open={false} onOpenChange={() => {}}><DialogContent /></Dialog>;
+    42→  }
+    43→  return (
+    44→    <BetDialogInner
+    45→      key={`${betSpec.spec.label}-${betSpec.side}`}
+    46→      spec={betSpec.spec}
+    47→      side={betSpec.side}
+    48→      onClose={() => setBetSpec(null)}
+    49→    />
+    50→  );
+    51→}
+    52→
+    53→function BetDialogInner({ spec, side, onClose }: { spec: BoutSpec; side: "A" | "B"; onClose: () => void }) {
+    54→  const bout = useBout(spec);
+    55→  const { bankroll, placeBet, claimBailout } = useBetStore();
+    56→  const [stake, setStake] = useState("10");
+    57→
+    58→  const fighter = side === "A" ? bout?.a : bout?.b;
+    59→  const odds = side === "A" ? (bout?.engine.oddsA ?? 0) : (bout?.engine.oddsB ?? 0);
+    60→  const dec = decimalFromAmerican(odds);
+    61→  const stakeNum = Math.max(0, parseFloat(stake) || 0);
+    62→  const profit = stakeNum * (dec - 1);
+    63→  const broke = bankroll < 1;
+    64→
+    65→  if (!bout || !fighter) {
+    66→    return <Dialog open={false} onOpenChange={() => {}}><DialogContent /></Dialog>;
+    67→  }
+    68→
+    69→  const quickAmounts = [5, 10, 25, 50, 100];
+    70→  const canAfford = stakeNum > 0 && stakeNum <= bankroll;
+    71→
+    72→  const confirm = () => {
+    73→    if (broke) {
+    74→      toast.error(`You're flat broke — collect the $${BAILOUT_AMOUNT} emergency sponsorship first`);
+    75→      return;
+    76→    }
+    77→    if (!canAfford) {
+    78→      toast.error(stakeNum <= 0 ? "Enter a stake first" : "Not enough bankroll — bet what you've got");
+    79→      return;
+    80→    }
+    81→    const ok = placeBet({
+    82→      bettorFighterId: fighter.id,
+    83→      bettorName: fighter.name,
+    84→      opponentId: side === "A" ? bout.b.id : bout.a.id,
+    85→      opponentName: side === "A" ? bout.b.name : bout.a.name,
+    86→      eventLabel: spec.label,
+    87→      stake: stakeNum,
+    88→      odds,
+    89→      decOdds: dec,
+    90→    });
+    91→    if (ok) {
+    92→      toast.success(`$${stakeNum.toFixed(2)} on ${fighter.name} @ ${fmtOdds(odds)} — to collect $${profit.toFixed(2)}`);
+    93→      onClose();
+    94→    } else {
+    95→      toast.error("Bet rejected — check your bankroll");
+    96→    }
+    97→  };
+    98→
+    99→  return (
+   100→    <Dialog open={true} onOpenChange={(v) => !v && onClose()}>
+   101→      <DialogContent aria-describedby={undefined} className="max-w-md rounded-2xl border-white/10 bg-[#101216] p-0 gap-0">
+   102→        <DialogTitle className="sr-only">Place bet on {fighter.name}</DialogTitle>
+   103→        <div className="h-1 red-grad rounded-t-2xl" />
+   104→        <div className="px-5 py-5">
+   105→          <div className="flex items-center gap-2 text-[10px] font-display tracking-[0.2em] text-zinc-500 uppercase">
+   106→            <DollarSign className="h-3.5 w-3.5 text-[#e0b64c]" /> PLACE YOUR BET · {spec.label.toUpperCase()}
+   107→          </div>
+   108→
+   109→          <div className="mt-4 flex items-center gap-3 rounded-xl border border-white/10 bg-white/[0.03] p-3">
+   110→            <FighterAvatar fighter={fighter} size="md" />
+   111→            <div className="min-w-0 flex-1">
+   112→              <div className="truncate font-display text-lg font-bold text-white">{fighter.name}</div>
+   113→              <div className="text-xs text-zinc-500">
+   114→                <RecordText fighter={fighter} /> vs {side === "A" ? bout.b.name : bout.a.name}
+   115→              </div>
+   116→            </div>
+   117→            <OddsChip odds={odds} side="A" />
+   118→          </div>
+   119→
+   120→          {broke ? (
+   121→            <div className="mt-4 rounded-xl border border-[#e0b64c]/40 bg-[#e0b64c]/10 p-4 text-center">
+   122→              <HandCoins className="mx-auto h-8 w-8 text-[#e0b64c]" />
+   123→              <p className="mt-2 text-sm font-semibold text-zinc-200">You're flat broke!</p>
+   124→              <p className="mt-1 text-xs text-zinc-400">
+   125→                The promoter won't leave a fighter on the canvas. A $500 emergency sponsorship is on the table.
+   126→              </p>
+   127→              <Button
+   128→                onClick={() => {
+   129→                  claimBailout();
+   130→                  setStake("10");
+   131→                }}
+   132→                className="red-grad mt-3 w-full font-display font-bold tracking-widest text-white hover:opacity-90"
+   133→              >
+   134→                <HandCoins className="mr-2 h-4 w-4" /> COLLECT $500 SPONSORSHIP
+   135→              </Button>
+   136→            </div>
+   137→          ) : (
+   138→            <div className="mt-4 space-y-3">
+   139→              <div>
+   140→                <div className="mb-1.5 flex items-center justify-between text-[10px] font-display tracking-[0.15em] text-zinc-500 uppercase">
+   141→                  <span>Stake</span>
+   142→                  <span>Bankroll: <span className="num text-emerald-400">${bankroll.toFixed(2)}</span></span>
+   143→                </div>
+   144→                <div className="flex gap-2">
+   145→                  <Input
+   146→                    type="number"
+   147→                    min={1}
+   148→                    max={Math.floor(bankroll)}
+   149→                    value={stake}
+   150→                    onChange={(e) => setStake(e.target.value)}
+   151→                    className="num border-white/15 bg-black/40 text-lg font-bold"
+   152→                    placeholder="0"
+   153→                  />
+   154→                </div>
+   155→                <div className="mt-2 flex flex-wrap gap-1.5">
+   156→                  {quickAmounts.map((q) => (
+   157→                    <button
+   158→                      key={q}
+   159→                      onClick={() => setStake(String(q))}
+   160→                      disabled={q > bankroll}
+   161→                      className="rounded-md border border-white/10 bg-white/5 px-2.5 py-1 text-xs font-semibold num text-zinc-300 transition-colors hover:border-[#e5322d]/50 hover:text-white disabled:opacity-30"
+   162→                    >
+   163→                      ${q}
+   164→                    </button>
+   165→                  ))}
+   166→                  <button
+   167→                    onClick={() => setStake(String(Math.max(0, Math.floor(bankroll * 100) / 100)))}
+   168→                    className="rounded-md border border-[#e5322d]/40 bg-[#e5322d]/10 px-2.5 py-1 text-xs font-semibold text-[#ff6b66] transition-colors hover:bg-[#e5322d]/20"
+   169→                  >
+   170→                    ALL-IN
+   171→                  </button>
+   172→                </div>
+   173→              </div>
+   174→
+   175→              <div className="rounded-xl border border-[#e0b64c]/30 bg-[#e0b64c]/5 p-3">
+   176→                <div className="flex items-center justify-between text-xs text-zinc-400">
+   177→                  <span>American line</span>
+   178→                  <span className="num font-bold text-white">{fmtOdds(odds)}</span>
+   179→                </div>
+   180→                <div className="mt-1 flex items-center justify-between text-xs text-zinc-400">
+   181→                  <span>Decimal</span>
+   182→                  <span className="num font-bold text-white">{dec.toFixed(2)}</span>
+   183→                </div>
+   184→                <div className="my-2 h-px bg-white/10" />
+   185→                <div className="flex items-center justify-between">
+   186→                  <span className="text-xs text-zinc-400">Pays if he wins</span>
+   187→                  <span className="num font-display text-xl font-bold text-[#e0b64c]">
+   188→                    +${profit.toFixed(2)}
+   189→                  </span>
+   190→                </div>
+   191→                <div className="mt-0.5 text-right text-[10px] text-zinc-500 num">
+   192→                  returns ${(stakeNum + profit).toFixed(2)} total
+   193→                </div>
+   194→              </div>
+   195→
+   196→              <Button
+   197→                onClick={confirm}
+   198→                disabled={!canAfford}
+   199→                className="w-full red-grad h-11 font-display text-base font-bold tracking-widest text-white hover:opacity-90 disabled:opacity-40"
+   200→              >
+   201→                <Zap className="mr-2 h-4 w-4" />
+   202→                CONFIRM BET
+   203→              </Button>
+   204→            </div>
+   205→          )}
+   206→        </div>
+   207→      </DialogContent>
+   208→    </Dialog>
+   209→  );
+   210→}
+   211→
+   212→
+   213→// ---------- Play-by-play timeline ----------
+   214→interface TimelineBeat {
+   215→  round: number;
+   216→  text: string;
+   217→  r: SimRound;
+   218→}
+   219→
+   220→function flattenBeats(sim: SimResult): TimelineBeat[] {
+   221→  const out: TimelineBeat[] = [];
+   222→  for (const r of sim.rounds) {
+   223→    const beats = r.beats?.length ? r.beats : [r.text];
+   224→    for (const b of beats) out.push({ round: r.round, text: b, r });
+   225→  }
+   226→  return out;
+   227→}
+   228→
+   229→// ---------- Simulation dialog ----------
+   230→export function FightSimDialog() {
+   231→  const { simSpec, setSimSpec, setBetSpec } = useApp();
+   232→  const bout = useBout(simSpec);
+   233→  const { bets, settleBet, bankroll } = useBetStore();
+   234→  const [phase, setPhase] = useState<"idle" | "running" | "done">("idle");
+   235→  const [sim, setSim] = useState<SimResult | null>(null);
+   236→  const [revealed, setRevealed] = useState(0); // play-by-play beats revealed
+   237→  const [runId, setRunId] = useState(0);
+   238→  const [speed, setSpeed] = useState<1 | 2>(1); // beats per reveal delay multiplier
+   239→  const settledRunRef = useRef<number>(-1);
+   240→  const timers = useRef<ReturnType<typeof setTimeout>[]>([]);
+   241→
+   242→  const isEventBout = !!simSpec?.source;
+   243→  const timeline = useMemo(() => (sim ? flattenBeats(sim) : []), [sim]);
+   244→
+   245→  const activeBets = useMemo(() => {
+   246→    if (!simSpec) return [];
+   247→    return bets.filter(
+   248→      (b) =>
+   249→        b.status === "open" &&
+   250→        b.eventLabel === simSpec.label &&
+   251→        ((b.bettorFighterId === simSpec.aId && b.opponentId === simSpec.bId) ||
+   252→          (b.bettorFighterId === simSpec.bId && b.opponentId === simSpec.aId))
+   253→    );
+   254→  }, [bets, simSpec]);
+   255→
+   256→  useEffect(() => {
+   257→    setPhase("idle");
+   258→    setSim(null);
+   259→    setRevealed(0);
+   260→    settledRunRef.current = -1;
+   261→    return () => {
+   262→      timers.current.forEach(clearTimeout);
+   263→      timers.current = [];
+   264→    };
+   265→  }, [simSpec]);
+   266→
+   267→  const clearTimers = () => {
+   268→    timers.current.forEach(clearTimeout);
+   269→    timers.current = [];
+   270→  };
+   271→
+   272→  // the official result is in — settle bets exactly once per run and, for a
+   273→  // UNIVERSE EVENT bout, write the fight onto both career records (records,
+   274→  // belt and rankings all update). Fight Lab bookings are exhibitions: the
+   275→  // wallet settles, nothing else changes.
+   276→  useEffect(() => {
+   277→    if (phase !== "done" || !sim || !simSpec || !bout) return;
+   278→    if (settledRunRef.current === runId) return;
+   279→    settledRunRef.current = runId;
+   280→
+   281→    let recorded = false;
+   282→    if (simSpec.source) {
+   283→      const outcome = recordEventBout(simSpec.source.eventId, simSpec.source.boutId, sim);
+   284→      if (outcome) {
+   285→        recorded = true;
+   286→        toast.success(`${outcome.note}`, { duration: 5000 });
+   287→        if (outcome.belt) {
+   288→          toast.success(
+   289→            `NEW CHAMPION! ${outcome.belt.newChamp.name} dethrones ${outcome.belt.oldChamp.name} — the ${outcome.belt.divName} belt changes hands!`,
+   290→            { duration: 7000 }
+   291→          );
+   292→        }
+   293→      }
+   294→    }
+   295→
+   296→    const winnerId = sim.winner === "A" ? bout.a.id : bout.b.id;
+   297→    const note = resultSummary(sim, bout.a, bout.b);
+   298→    let won = 0;
+   299→    let lost = 0;
+   300→    let profit = 0;
+   301→    for (const bet of activeBets) {
+   302→      const isWin = bet.bettorFighterId === winnerId;
+   303→      const payout = bet.stake * (bet.decOdds - 1);
+   304→      settleBet(bet.id, isWin, note, payout);
+   305→      if (isWin) {
+   306→        won++;
+   307→        profit += payout;
+   308→      } else {
+   309→        lost++;
+   310→      }
+   311→    }
+   312→    if (won + lost > 0) {
+   313→      if (won > 0) {
+   314→        toast.success(`Bet cashed! ${won} win${won > 1 ? "s" : ""} · +$${profit.toFixed(2)} profit`);
+   315→      } else {
+   316→        toast.error(`Bet lost · −$${activeBets.reduce((s, b) => s + b.stake, 0).toFixed(2)}`);
+   317→      }
+   318→    }
+   319→  }, [phase, runId]);
+   320→
+   321→  const runSim = () => {
+   322→    if (!bout || !simSpec) return;
+   323→    const result = simulateFight(bout.a, bout.b, simSpec.rounds, simSpec.houseA != null ? bout.pA : undefined);
+   324→    const tl = flattenBeats(result);
+   325→    setSim(result);
+   326→    setRevealed(0);
+   327→    setRunId((r) => r + 1);
+   328→    clearTimers();
+   329→    if (tl.length === 0) {
+   330→      setPhase("done");
+   331→      return;
+   332→    }
+   333→    setPhase("running");
+   334→    const step = speed === 1 ? 2600 : 1300; // ~15-30s of play-by-play per round at 1x
+   335→    tl.forEach((_, i) => {
+   336→      timers.current.push(
+   337→        setTimeout(() => {
+   338→          setRevealed(i + 1);
+   339→          if (i + 1 === tl.length) {
+   340→            timers.current.push(setTimeout(() => setPhase("done"), 900));
+   341→          }
+   342→        }, step * (i + 1))
+   343→      );
+   344→    });
+   345→  };
+   346→
+   347→  const skipToEnd = () => {
+   348→    clearTimers();
+   349→    if (sim) setRevealed(timeline.length);
+   350→    setPhase("done");
+   351→  };
+   352→
+   353→  if (!bout || !simSpec) {
+   354→    return <Dialog open={false} onOpenChange={() => {}}><DialogContent /></Dialog>;
+   355→  }
+   356→
+   357→  const { a, b, engine, pA, fromMarket } = bout;
+   358→  const winner = sim?.winner === "A" ? a : sim?.winner === "B" ? b : null;
+   359→  const loser = sim?.winner === "A" ? b : sim?.winner === "B" ? a : null;
+   360→
+   361→  // rounds with at least one revealed beat, in order
+   362→  const shownRounds = sim
+   363→    ? sim.rounds.filter((r) => {
+   364→        const beats = r.beats?.length ? r.beats : [r.text];
+   365→        const before = sim.rounds.slice(0, sim.rounds.indexOf(r)).reduce((s, x) => s + (x.beats?.length ?? 1), 0);
+   366→        return revealed > before && beats.length > 0;
+   367→      })
+   368→    : [];
+   369→
+   370→  return (
+   371→    <Dialog open={true} onOpenChange={(v) => !v && setSimSpec(null)}>
+   372→      <DialogContent aria-describedby={undefined} className="max-w-2xl max-h-[92vh] overflow-y-auto thin-scroll rounded-2xl border-white/10 bg-[#101216] p-0 gap-0">
+   373→        <DialogTitle className="sr-only">Fight simulation {a.name} vs {b.name}</DialogTitle>
+   374→        <div className="h-1 red-grad rounded-t-2xl" />
+   375→        <div className="px-5 py-4 sm:px-6">
+   376→          <div className="flex items-center justify-between">
+   377→            <div className="flex items-center gap-2 text-[10px] font-display tracking-[0.2em] text-zinc-500 uppercase">
+   378→              {isEventBout ? (
+   379→                <>
+   380→                  <Radio className="h-3.5 w-3.5 text-[#e5322d]" /> LIVE · {simSpec.label.toUpperCase()}
+   381→                </>
+   382→              ) : (
+   383→                <>
+   384→                  <span className="h-1.5 w-1.5 rounded-full bg-[#e5322d] live-dot" /> EXHIBITION · FIGHT LAB
+   385→                </>
+   386→              )}
+   387→            </div>
+   388→            <div className="flex items-center gap-1.5">
+   389→              {phase === "running" && (
+   390→                <button
+   391→                  onClick={() => setSpeed((s) => (s === 1 ? 2 : 1))}
+   392→                  className="flex items-center gap-1 rounded border border-white/15 bg-white/5 px-2 py-0.5 text-[10px] font-display font-bold tracking-widest text-zinc-300 transition-colors hover:text-white"
+   393→                  title="Toggle play-by-play speed"
+   394→                >
+   395→                  <FastForward className="h-3 w-3" /> {speed === 1 ? "1×" : "2×"}
+   396→                </button>
+   397→              )}
+   398→              {phase === "running" && (
+   399→                <button
+   400→                  onClick={skipToEnd}
+   401→                  className="flex items-center gap-1 rounded border border-[#e5322d]/40 bg-[#e5322d]/10 px-2 py-0.5 text-[10px] font-display font-bold tracking-widest text-[#ff6b66] transition-colors hover:bg-[#e5322d]/20"
+   402→                >
+   403→                  <SkipForward className="h-3 w-3" /> SKIP
+   404→                </button>
+   405→              )}
+   406→              <span className="text-[10px] font-display tracking-widest text-zinc-500">{simSpec.rounds} RDS</span>
+   407→            </div>
+   408→          </div>
+   409→
+   410→          {/* Tale of tape header */}
+   411→          <div className="mt-3 grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-2 sm:gap-4">
+   412→            <div className="group flex items-center gap-3 text-left">
+   413→              <FighterAvatar fighter={a} size="lg" />
+   414→              <div className="min-w-0">
+   415→                <div className="truncate font-display text-lg font-bold text-white">{a.name}</div>
+   416→                <div className="flex items-center gap-1.5 text-[11px] text-zinc-500">
+   417→                  <Flag cc={a.cc} className="h-3 w-4" /> <RecordText fighter={a} />
+   418→                </div>
+   419→              </div>
+   420→            </div>
+   421→            <div className="flex flex-col items-center">
+   422→              <div className="font-display text-2xl font-black text-[#e0b64c]">VS</div>
+   423→              <OddsChip odds={engine.oddsA} side="A" />
+   424→            </div>
+   425→            <div className="group flex flex-row-reverse items-center gap-3 text-right">
+   426→              <FighterAvatar fighter={b} size="lg" />
+   427→              <div className="min-w-0">
+   428→                <div className="truncate font-display text-lg font-bold text-white">{b.name}</div>
+   429→                <div className="flex flex-row-reverse items-center justify-end gap-1.5 text-[11px] text-zinc-500">
+   430→                  <Flag cc={b.cc} className="h-3 w-4" /> <RecordText fighter={b} />
+   431→                </div>
+   432→              </div>
+   433→            </div>
+   434→          </div>
+   435→
+   436→          {/* Math panel */}
+   437→          <div className="mt-4 rounded-xl border border-white/10 bg-white/[0.02] p-3">
+   438→            <div className="flex items-center gap-1.5 text-[9px] font-display tracking-[0.2em] text-zinc-500 uppercase">
+   439→              <Calculator className="h-3 w-3 text-[#e5322d]" /> THE MATH — ELO PROBABILITY MODEL
+   440→            </div>
+   441→            <div className="mt-2.5">
+   442→              <div className="flex h-6 overflow-hidden rounded-md">
+   443→                <div
+   444→                  className="flex items-center justify-start bg-gradient-to-r from-[#e5322d]/70 to-[#e5322d]/50 px-2 text-[10px] font-bold num text-white"
+   445→                  style={{ width: `${pA * 100}%` }}
+   446→                >
+   447→                  {(pA * 100).toFixed(0)}%
+   448→                </div>
+   449→                <div
+   450→                  className="flex items-center justify-end bg-gradient-to-l from-sky-600/70 to-sky-600/50 px-2 text-[10px] font-bold num text-white"
+   451→                  style={{ width: `${(1 - pA) * 100}%` }}
+   452→                >
+   453→                  {((1 - pA) * 100).toFixed(0)}%
+   454→                </div>
+   455→              </div>
+   456→              <div className="mt-2 grid grid-cols-3 gap-2 text-center">
+   457→                <div>
+   458→                  <div className="text-[9px] uppercase tracking-widest text-zinc-500">Elo {a.name.split(" ").slice(-1)}</div>
+   459→                  <div className="num text-sm font-bold text-zinc-200">{a.elo}</div>
+   460→                </div>
+   461→                <div>
+   462→                  <div className="text-[9px] uppercase tracking-widest text-zinc-500">Fair line</div>
+   463→                  <div className="num text-sm font-bold text-zinc-200">
+   464→                    {fmtOdds(engine.fairA)} / {fmtOdds(engine.fairB)}
+   465→                  </div>
+   466→                </div>
+   467→                <div>
+   468→                  <div className="text-[9px] uppercase tracking-widest text-zinc-500">Elo {b.name.split(" ").slice(-1)}</div>
+   469→                  <div className="num text-sm font-bold text-zinc-200">{b.elo}</div>
+   470→                </div>
+   471→              </div>
+   472→              <p className="mt-2 text-[10px] leading-relaxed text-zinc-500">
+   473→                {fromMarket
+   474→                  ? "Probability de-vigged from the real sportsbook line; simulation outcomes are drawn from this distribution."
+   475→                  : "P(A) = 1 / (1 + 10^((EloB − EloA)/400)) blended with style attributes. Outcomes are sampled from this exact distribution — the odds are math, not vibes."}
+   476→              </p>
+   477→            </div>
+   478→          </div>
+   479→
+   480→          {/* Active bets */}
+   481→          {activeBets.length > 0 && phase === "idle" && (
+   482→            <div className="mt-3 space-y-1.5">
+   483→              {activeBets.map((bet) => (
+   484→                <div key={bet.id} className="flex items-center justify-between rounded-lg border border-[#e0b64c]/30 bg-[#e0b64c]/5 px-3 py-2">
+   485→                  <span className="text-xs text-zinc-300">
+   486→                    <DollarSign className="mr-1 inline h-3 w-3 text-[#e0b64c]" />
+   487→                    <span className="num font-bold">${bet.stake.toFixed(2)}</span> on <span className="font-semibold text-white">{bet.bettorName}</span> @ {fmtOdds(bet.odds)}
+   488→                  </span>
+   489→                  <span className="num text-xs font-bold text-[#e0b64c]">
+   490→                    to win ${(bet.stake * (bet.decOdds - 1)).toFixed(2)}
+   491→                  </span>
+   492→                </div>
+   493→              ))}
+   494→            </div>
+   495→          )}
+   496→
+   497→          {/* Play-by-play */}
+   498→          {sim && (
+   499→            <div className="mt-4 space-y-2">
+   500→              {shownRounds.map((r) => {
+   501→                const beats = r.beats?.length ? r.beats : [r.text];
+   502→                const before = sim.rounds.slice(0, sim.rounds.indexOf(r)).reduce((s, x) => s + (x.beats?.length ?? 1), 0);
+   503→                const shown = Math.max(0, Math.min(beats.length, revealed - before));
+   504→                const lastOfRound = before + shown >= before + beats.length;
+   505→                return (
+   506→                  <div
+   507→                    key={r.round}
+   508→                    className={`rounded-lg border transition-colors ${
+   509→                      r.finish && lastOfRound
+   510→                        ? "border-[#e5322d]/60 bg-[#e5322d]/10"
+   511→                        : "border-white/10 bg-white/[0.03]"
+   512→                    }`}
+   513→                  >
+   514→                    <div className="flex items-center justify-between border-b border-white/5 px-3 py-1.5">
+   515→                      <span className="font-display text-xs font-bold tracking-widest text-zinc-300">ROUND {r.round}</span>
+   516→                      <span className="text-[10px] num text-zinc-500">
+   517→                        sig strikes: {r.aLanded} — {r.bLanded}
+   518→                      </span>
+   519→                    </div>
+   520→                    <div className="space-y-1.5 px-3 py-2">
+   521→                      {beats.slice(0, shown).map((beat, i) => (
+   522→                        <p
+   523→                          key={i}
+   524→                          className={`text-xs leading-relaxed transition-colors ${
+   525→                            /CLEAN|HURT|WAVES IT OFF|TAPS|TIGHT/.test(beat)
+   526→                              ? "font-semibold text-[#ff948f]"
+   527→                              : "text-zinc-300"
+   528→                          }`}
+   529→                        >
+   530→                          {beat}
+   531→                        </p>
+   532→                      ))}
+   533→                    </div>
+   534→                  </div>
+   535→                );
+   536→              })}
+   537→              {phase === "running" && revealed < timeline.length && (
+   538→                <div className="flex items-center justify-center gap-1.5 py-3">
+   539→                  <span className="h-2 w-2 animate-pulse rounded-full bg-[#e5322d]" />
+   540→                  <span className="h-2 w-2 animate-pulse rounded-full bg-[#e5322d] [animation-delay:150ms]" />
+   541→                  <span className="h-2 w-2 animate-pulse rounded-full bg-[#e5322d] [animation-delay:300ms]" />
+   542→                  <span className="ml-2 text-[10px] text-zinc-500">
+   543→                    {revealed}/{timeline.length} moments
+   544→                  </span>
+   545→                </div>
+   546→              )}
+   547→            </div>
+   548→          )}
+   549→
+   550→          {/* Result card */}
+   551→          {phase === "done" && sim && winner && loser && (
+   552→            <div className={`mt-4 rounded-xl border p-4 ${sim.winner === "A" || sim.winner === "B" ? "border-emerald-500/40 bg-emerald-500/5" : ""}`}>
+   553→              <div className="flex items-center gap-3">
+   554→                <div className={`flex h-10 w-10 items-center justify-center rounded-full border-2 ${
+   555→                  sim.winner === "A" || sim.winner === "B" ? "border-emerald-400 bg-emerald-500/20 text-emerald-400" : "border-zinc-500"
+   556→                }`}>
+   557→                  <Trophy className="h-5 w-5" />
+   558→                </div>
+   559→                <div className="min-w-0 flex-1">
+   560→                  <div className="text-[9px] font-display tracking-[0.2em] text-zinc-500">OFFICIAL RESULT</div>
+   561→                  <div className="truncate font-display text-lg font-bold text-white">
+   562→                    {winner.name} <span className="text-zinc-400">def.</span> {loser.name}
+   563→                  </div>
+   564→                  <div className="text-xs text-zinc-400">
+   565→                    {sim.method === "KO" ? `KO/TKO (${sim.detail})` : sim.method === "SUB" ? `Submission (${sim.detail})` : sim.method === "UDEC" ? "Unanimous Decision" : sim.method === "SDEC" ? "Split Decision" : "Majority Decision"}
+   566→                    {sim.method !== "KO" && sim.method !== "SUB" ? "" : ` — R${sim.round} ${sim.time}`}
+   567→                  </div>
+   568→                </div>
+   569→                <div className="text-right">
+   570→                  <div className="text-[9px] font-display tracking-[0.2em] text-zinc-500">SIG STRIKES</div>
+   571→                  <div className="num text-sm font-bold text-zinc-200">{sim.sigStrikesA} — {sim.sigStrikesB}</div>
+   572→                </div>
+   573→              </div>
+   574→              {sim.scorecards && (
+   575→                <div className="mt-3 grid grid-cols-3 gap-2">
+   576→                  {sim.scorecards.map((card, i) => (
+   577→                    <div key={i} className="rounded-lg border border-white/10 bg-black/30 py-1.5 text-center">
+   578→                      <div className="text-[9px] text-zinc-500">JUDGE {i + 1}</div>
+   579→                      <div className="num text-sm font-bold text-zinc-200">{card[0]}–{card[1]}</div>
+   580→                    </div>
+   581→                  ))}
+   582→                </div>
+   583→              )}
+   584→              <div className="mt-3 rounded-lg border border-white/10 bg-black/30 px-3 py-2 text-[10px] font-display tracking-widest text-zinc-400">
+   585→                {isEventBout
+   586→                  ? "OFFICIAL UNIVERSE RESULT — WRITTEN TO BOTH CAREER RECORDS · RANKINGS & TITLE UPDATED"
+   587→                  : "FIGHT LAB EXHIBITION — RECORDS UNTOUCHED · BOOK IT ON AN EVENT TO MAKE IT COUNT"}
+   588→              </div>
+   589→              {activeBets.length > 0 && (
+   590→                <div className="mt-3 rounded-lg border border-white/10 bg-black/30 px-3 py-2 text-xs">
+   591→                  {activeBets.map((bet) => {
+   592→                    const won = bet.bettorFighterId === winner.id;
+   593→                    const profit = won ? bet.stake * (bet.decOdds - 1) : -bet.stake;
+   594→                    return (
+   595→                      <div key={bet.id} className="flex items-center justify-between py-0.5">
+   596→                        <span className="text-zinc-400">
+   597→                          {won ? <Check className="mr-1 inline h-3 w-3 text-emerald-400" /> : <X className="mr-1 inline h-3 w-3 text-[#ff6b66]" />}
+   598→                          {bet.bettorName} · ${bet.stake.toFixed(2)} @ {fmtOdds(bet.odds)}
+   599→                        </span>
+   600→                        <span className={`num font-bold ${won ? "text-emerald-400" : "text-[#ff6b66]"}`}>
+   601→                          {won ? `+$${profit.toFixed(2)}` : `−$${Math.abs(profit).toFixed(2)}`}
+   602→                        </span>
+   603→                      </div>
+   604→                    );
+   605→                  })}
+   606→                </div>
+   607→              )}
+   608→            </div>
+   609→          )}
+   610→
+   611→          {/* Controls */}
+   612→          <div className="mt-5 flex flex-col gap-2 sm:flex-row">
+   613→            {phase === "idle" && (
+   614→              <Button
+   615→                onClick={runSim}
+   616→                className="red-grad h-12 flex-1 font-display text-base font-bold tracking-widest text-white hover:opacity-90"
+   617→              >
+   618→                <Play className="mr-2 h-5 w-5" />
+   619→                {isEventBout ? "WATCH IT LIVE" : "RUN SIMULATION"}
+   620→              </Button>
+   621→            )}
+   622→            {phase !== "idle" && (
+   623→              <Button
+   624→                onClick={runSim}
+   625→                variant="outline"
+   626→                className="h-12 flex-1 border-white/15 bg-white/5 font-display text-sm font-bold tracking-widest text-zinc-200 hover:bg-white/10"
+   627→              >
+   628→                <RotateCcw className="mr-2 h-4 w-4" />
+   629→                RUN IT BACK
+   630→              </Button>
+   631→            )}
+   632→            {activeBets.length === 0 && phase === "idle" && (
+   633→              <Button
+   634→                onClick={() => {
+   635→                  setBetSpec({ spec: simSpec, side: "A" });
+   636→                }}
+   637→                variant="outline"
+   638→                className="h-12 border-[#e0b64c]/40 bg-[#e0b64c]/10 font-display text-sm font-bold tracking-widest text-[#e0b64c] hover:bg-[#e0b64c]/20 sm:w-40"
+   639→              >
+   640→                BET {a.name.split(" ").slice(-1).join(" ").toUpperCase()}
+   641→              </Button>
+   642→            )}
+   643→            {activeBets.length === 0 && phase === "idle" && (
+   644→              <Button
+   645→                onClick={() => {
+   646→                  setBetSpec({ spec: simSpec, side: "B" });
+   647→                }}
+   648→                variant="outline"
+   649→                className="h-12 border-[#e0b64c]/40 bg-[#e0b64c]/10 font-display text-sm font-bold tracking-widest text-[#e0b64c] hover:bg-[#e0b64c]/20 sm:w-40"
+   650→              >
+   651→                BET {b.name.split(" ").slice(-1).join(" ").toUpperCase()}
+   652→              </Button>
+   653→            )}
+   654→          </div>
+   655→
+   656→          {phase === "idle" && activeBets.length > 0 && (
+   657→            <p className="mt-2 text-center text-[10px] text-zinc-500">
+   658→              Your bet is live — run the simulation to settle it. Bankroll: <span className="num text-emerald-400">${bankroll.toFixed(2)}</span>
+   659→            </p>
+   660→          )}
+   661→        </div>
+   662→      </DialogContent>
+   663→    </Dialog>
+   664→  );
+   665→}
+   666→

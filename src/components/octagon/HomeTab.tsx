@@ -18,6 +18,7 @@ import {
   universeBouts,
   useUniverseVersion,
 } from "@/lib/universe";
+import { champDivisions } from "@/lib/belts";
 import { useApp } from "./AppContext";
 import { FighterAvatar, Flag, RecordText, OvrBadge, DivisionChip } from "./shared";
 import { Button } from "@/components/ui/button";
@@ -220,7 +221,7 @@ export function HomeTab() {
             <h2 className="flex items-center gap-2 font-display text-xl font-bold text-white">
               <Crown className="h-5 w-5 text-[#e0b64c]" /> CURRENT CHAMPIONS
             </h2>
-            <p className="mt-0.5 text-xs text-zinc-500">11 belts · verified Oct 17, 2026 · tap any champ for their full file</p>
+            <p className="mt-0.5 text-xs text-zinc-500">{CHAMPIONS.length === 11 ? "11 belts" : `${CHAMPIONS.length} champions holding the belts`} · verified Oct 17, 2026 · tap any champ for their full file</p>
           </div>
         </div>
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
@@ -246,7 +247,11 @@ export function HomeTab() {
                   <RecordText fighter={c} />
                 </div>
               </div>
-              <div className="mt-2.5"><DivisionChip division={c.division} /></div>
+              <div className="mt-2.5 flex flex-wrap gap-1.5">
+                {champDivisions(c).map((d) => (
+                  <DivisionChip key={d} division={d} />
+                ))}
+              </div>
             </motion.button>
           ))}
         </div>

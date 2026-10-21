@@ -16,7 +16,7 @@
 import { useEffect, useState } from "react";
 import { Fighter, FightLogEntry, WinMethod, DivisionId, SimEvent, SimEventBout, EventSection } from "./types";
 import { getFighter, DIVISION_MAP, ROSTER } from "./data";
-import { maybeTransferBelt, BeltChange } from "./belts";
+import { transferBelts, isSuperfight, champDivisions, BeltChange } from "./belts";
 import { SimResult } from "./engine";
 
 const STORAGE_KEY = "octagon-hq-universe-v1";
@@ -90,6 +90,7 @@ interface UniverseState {
 }
 
 export interface UniverseBout {
+  boutId: string;     // idempotency key — one ledger rec per event bout, ever
   aId: string;
   bId: string;
   winner: "A" | "B" | "DRAW" | "NC";
@@ -136,12 +137,14 @@ function boutWeightClass(a: Fighter, b: Fighter): DivisionId {
     : b.division;
 }
 
-// same-division bout with a reigning champion = title fight. Legends
-// (status "retired") fight in this universe too — booked against the champ
-// it's a title fight and the belt CAN move, same as anyone else.
+// same-division bout with a reigning champion = classic title fight. A
+// champ vs champ cross-division bout = SUPERFIGHT — both belts on the line
+// and the winner becomes a double champ. Everyone in this universe fights
+// in their prime; a legend booked against the champ is a title fight and
+// the belt CAN move, same as anyone else.
 export function isTitleBout(a: Fighter, b: Fighter): boolean {
-  if (a.division !== b.division) return false;
-  return !!(a.isChampion || b.isChampion);
+  if (a.division === b.division) return !!(a.isChampion || b.isChampion);
+  return isSuperfight(a, b);
 }
 
 // rounds a bout should be fought at TODAY — the belt may have moved onto
@@ -436,16 +439,19 @@ export function moveBout(eventId: string, boutId: string, dir: -1 | 1): void {
 
 export interface RecordOutcome {
   evName: string;
-  belt?: BeltChange;
+  belts: BeltChange[];
   note: string;
 }
 
-// THE moment a universe event bout is decided: careers update, the belt can
-// change hands, and the ledger grows. Lab fights NEVER call this.
+// THE moment a universe event bout is decided: careers update, belts can
+// change hands (one in a title fight, both in a superfight), and the ledger
+// grows. Lab fights NEVER call this. Doubly guarded: the bout's own result
+// flag AND the ledger's boutId key — a fight can only ever be written once.
 export function recordEventBout(eventId: string, boutId: string, sim: SimResult): RecordOutcome | null {
   const ev = state.events.find((e) => e.id === eventId);
   const bout = ev?.bouts.find((b) => b.id === boutId);
   if (!ev || !bout || bout.result) return null;
+  if (state.ledger.some((r) => r.boutId === bout.id)) return null;
   const a = getFighter(bout.aId);
   const b = getFighter(bout.bId);
   if (!a || !b) return null;
@@ -455,6 +461,7 @@ export function recordEventBout(eventId: string, boutId: string, sim: SimResult)
   const title = bout.title || isTitleBout(a, b);
   const date = prettyDate(ev.dateISO);
   const rec: UniverseBout = {
+    boutId: bout.id,
     aId: a.id,
     bId: b.id,
     winner: sim.winner,
@@ -480,8 +487,8 @@ export function recordEventBout(eventId: string, boutId: string, sim: SimResult)
   };
   if (title && sim.winner !== "A" && sim.winner !== "B") bout.title = undefined;
 
-  // champion can lose the belt right here
-  const belt = maybeTransferBelt(a, b, sim.winner);
+  // belts can change hands right here — one, or both in a superfight
+  const belts = transferBelts(a, b, sim.winner);
 
   if (ev.bouts.every((x) => x.result)) ev.completed = true;
   save();
@@ -491,7 +498,7 @@ export function recordEventBout(eventId: string, boutId: string, sim: SimResult)
   const l = sim.winner === "A" ? b : a;
   return {
     evName: eventDisplayName(ev),
-    belt: belt ?? undefined,
+    belts,
     note:
       sim.winner === "DRAW" || sim.winner === "NC"
         ? `${a.name} vs ${b.name} — a draw goes on both records at ${eventDisplayName(ev)}`
@@ -536,10 +543,12 @@ function pointsFromLedger(): Map<string, { pts: number; finishes: number }> {
 
 export function divisionStandings(div: DivisionId): Standing[] {
   const pts = pointsFromLedger();
-  const roster = getDivision(div);
-  const champ = roster.find((f) => f.isChampion);
-  const others = roster
-    .filter((f) => !f.isChampion)
+  // the division's champ can live anywhere on the roster — a DOUBLE CHAMP
+  // (superfight winner) holds this belt even if he fights out of another
+  // division, so search the full roster, not just this division's list
+  const champ = ROSTER.find((f) => champDivisions(f).includes(div));
+  const others = getDivision(div)
+    .filter((f) => !champDivisions(f).includes(div))
     .map((f) => {
       const p = pts.get(f.id) ?? { pts: 0, finishes: 0 };
       const s = simRecord(f);
@@ -600,7 +609,7 @@ function getDivision(div: DivisionId): Fighter[] {
 export function simP4P(gender: "men" | "women"): { fighter: Fighter; pts: number; rank: number | "C" }[] {
   const pts = pointsFromLedger();
   const pool = ROSTER.filter((f) => DIVISION_MAP[f.division].division === gender);
-  const champs = pool.filter((f) => f.isChampion);
+  const champs = pool.filter((f) => champDivisions(f).length > 0);
   const rest = pool.filter((f) => !f.isChampion);
   const champsRanked = champs.map((f) => ({ fighter: f, pts: pts.get(f.id)?.pts ?? 0, rank: "C" as number | "C" }));
   const restRanked = rest
@@ -629,14 +638,15 @@ export function rehydrateUniverse(): void {
   if (!raw) return;
   try {
     const parsed = JSON.parse(raw) as UniverseState;
-    if (!parsed || !Array.isArray(parsed.events) || !Array.isArray(parsed.ledger)) return;
+    if (!parsed || !Array.isArray(parsed.events)) return;
     state = { events: parsed.events, ledger: [] };
+
     // migrate: legacy fight nights get their infinite numbers (Fight Night
     // 1, 2, 3… in fight order); the old display name is kept so any open
     // wallet bets placed under it still settle
     let fn = 1;
     let changed = false;
-    const ordered = [...state.events].sort((a, b) => (a.dateISO < b.dateISO ? -1 : a.dateISO > b.dateISO ? 1 : 0));
+    const ordered = [...state.events].sort((a, b) => (a.dateISO < b.dateISO ? -1 : a.dateISO > b.dateISO ? 1 : (a.createdAt ?? 0) - (b.createdAt ?? 0)));
     for (const ev of ordered) {
       if (ev.type !== "fightnight") continue;
       if (ev.number == null) {
@@ -646,17 +656,47 @@ export function rehydrateUniverse(): void {
       }
       fn = Math.max(fn, ev.number + 1);
     }
-    if (changed) save();
-    // replay bouts in order — records, sim counters AND belt transfers
-    for (const rec of parsed.ledger) {
-      const a = getFighter(rec.aId);
-      const b = getFighter(rec.bId);
-      if (!a || !b || a.id === b.id) continue;
-      applyBout(a, b, rec);
-      maybeTransferBelt(a, b, rec.winner);
-      state.ledger.push(rec);
+
+    // REBUILD THE LEDGER FROM EVENT RESULTS — the stored ledger array is
+    // deliberately IGNORED. Older builds could append the same bout several
+    // times (the 4x duplication bug: every fight showed as four identical
+    // history entries and records counted 4x). Events are the source of
+    // truth: every fought bout carries exactly ONE result object, so
+    // rebuilding here heals any duplicated ledger on load — records,
+    // histories, rankings and belt lineage all come out exact.
+    for (const ev of ordered) {
+      for (const bout of [...ev.bouts].sort((x, y) => x.order - y.order)) {
+        if (!bout.result) continue;
+        const a = getFighter(bout.aId);
+        const b = getFighter(bout.bId);
+        if (!a || !b || a.id === b.id) continue;
+        const rec: UniverseBout = {
+          boutId: bout.id,
+          aId: a.id,
+          bId: b.id,
+          winner: bout.result.winner,
+          method: bout.result.method,
+          detail: bout.result.detail,
+          round: bout.result.round,
+          time: bout.result.time,
+          evName: eventDisplayName(ev),
+          section: bout.section,
+          date: prettyDate(ev.dateISO),
+          wc: boutWeightClass(a, b),
+          title: !!bout.title,
+        };
+        applyBout(a, b, rec);
+        transferBelts(a, b, rec.winner);
+        state.ledger.push(rec);
+      }
+      if (!ev.completed && ev.bouts.length > 0 && ev.bouts.every((x) => x.result)) {
+        ev.completed = true;
+        changed = true;
+      }
     }
-    bump();
+    // persist the healed universe (deduped ledger + boutId keys)
+    save();
+    if (changed || state.ledger.length > 0) bump();
   } catch {
     state = { events: [], ledger: [] };
   }

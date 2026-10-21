@@ -182,3 +182,25 @@ Work Log:
 
 Stage Summary:
 - Picker/profile/roster/home ranks are all live OCTAGONHQ ranks (version-cached for speed) and provably update after every event; picker defaults to HW with ALL demoted to the end; the app is now a 100% static export (no server, no API routes) verified E2E on a plain static file server, ready for GitHub Pages
+
+---
+Task ID: 12
+Agent: main (Z.ai)
+Task: Five-bug fix pass — (1) kill the 4x record-duplication glitch, (2) remove all retired status, (3) curated prime ratings for the big names, (4) style-true finish methods (no more Francis submitting Jones), (5) double champs via champ-vs-champ superfights.
+
+Work Log:
+- Root-caused the 4x duplication: the current code's guards (bout.result + settledRunRef) are sound, but the user's localStorage ledger was written by older guard-less builds — 4 copies per bout replay on every load. Prebuilt JSON verified clean (the corruption is storage-side only).
+- universe.ts: rehydrateUniverse now REBUILDS the ledger from event bout results (each fought bout carries exactly one result) — poisoned ledgers heal on load; ledger recs now carry boutId (idempotency key); recordEventBout double-guarded (bout.result AND ledger boutId).
+- types.ts: Fighter.champOf (per-division belt list). belts.ts rewritten: champDivisions(), isSuperfight() (cross-division champ vs champ, same gender), transferBelts() returning BeltChange[] — superfight moves EVERY belt the loser holds to the winner (double champ); classic title fight moves one.
+- universe.ts: isTitleBout covers superfights; divisionStandings finds the division's champ across the whole roster (double champ sits atop both divisions); simP4P uses champDivisions.
+- engine.ts sampleMethod: attribute gates + dominance terms — KO needs power (vs opponent chin), SUB needs a real grappling edge over the opponent. Francis (gr 36) vs Jones: sub chance ~0.3%; Jones vs Francis: 25%.
+- data/ratings.ts (NEW): 145 hand-curated prime patches — every champ, top contender, legend (Jones/Khabib/GSP/Aldo/Anderson...), fan-favorite tier (Bobby Green 54->84 str, Adesanya 1580->1780 elo, Paddy, McGregor, Diaz brothers) + Quillan Salkilld. Applied in data/index.ts at load; missing ids skipped silently.
+- UI: superfight badges (builder preview, card row, COPY CARD tag), belt-transfer toast loops, DOUBLE CHAMP chip + CHAMPION 2× badge + multi-division chips on Home.
+- E2E on static build (:8123 + agent-browser): poisoned 4x ledger -> healed to exactly 1 rec (Gane 1-0, Blaydes 0-1); Francis vs Jones 14 runs -> Francis 0 submissions (4 KO + 2 dec wins); superfight Gane vs Ulberg -> 5 rounds, R5 SDEC, Gane = HW+LHW double champ in both division standings + profile chips; HW defense loss -> Aspinall takes HW, Gane KEEPS LHW; zero console errors; no "retired" text anywhere.
+- Rebuilt out/ (3.5MB), restarted :3000 static preview.
+
+Stage Summary:
+- The 4x glitch is structurally dead: old corrupted saves self-heal on first load of the new build (rebuild-from-events), and double guards make re-recording impossible.
+- Double champs fully supported: book champ vs champ across divisions -> SUPERFIGHT (5 rds, both titles on the line); winner holds both belts, loses only the belt he defends in a same-division title fight.
+- Ratings: 145 big names hand-tuned; finish methods now style-true (strikers KO, grapplers sub, gated by attributes AND opponent resistance).
+- Static export rebuilt and serving at :3000; scripts/verify-five-fixes.sh documents the E2E flow.

@@ -52,6 +52,10 @@ export interface Fighter {
   elo: number;         // curated engine rating
   status?: "active" | "retired"; // everyone fights in their prime — always "active" after load
   legend?: boolean;    // Hall-of-Fame icon badge
+  // divisions this fighter currently holds the belt in. Undefined for a
+  // single-division champ = just his own division (the seeded case). A
+  // SUPERFIGHT winner can hold two at once — champOf tracks every belt.
+  champOf?: DivisionId[];
   // 0-100 attributes drive the simulator
   str: number;   // striking technique & output
   pow: number;   // knockout power

@@ -6,6 +6,7 @@ import { Fighter, FightLogEntry } from "@/lib/types";
 import { getFighter, ensureFighter, DIVISION_MAP } from "@/lib/data";
 import { overallRating, currentStreak } from "@/lib/engine";
 import { simRecord, useUniverseVersion } from "@/lib/universe";
+import { champDivisions } from "@/lib/belts";
 import { useApp } from "./AppContext";
 import { FighterAvatar, Flag, DivisionChip, RankBadge, RecordText, WinMethodBar, AttributeBar, OvrBadge } from "./shared";
 import { Crown, MapPin, Users, Ruler, Trophy, Star, Swords, TrendingUp, X, Medal } from "lucide-react";
@@ -160,6 +161,11 @@ export function FighterProfileDialog() {
                 <div className="flex flex-wrap items-center gap-2">
                   <RankBadge fighter={fighter} />
                   <DivisionChip division={fighter.division} />
+                  {champDivisions(fighter).length > 1 && (
+                    <span className="inline-flex items-center gap-1 rounded border border-[#e0b64c] bg-gradient-to-r from-[#e0b64c]/30 to-[#e0b64c]/10 px-2 py-0.5 text-[10px] font-display font-bold tracking-widest text-[#e0b64c]">
+                      <Crown className="h-3 w-3" /> DOUBLE CHAMP · {champDivisions(fighter).map((d) => DIVISION_MAP[d].shortName).join(" + ")}
+                    </span>
+                  )}
                   {fighter.legend && (
                     <span className="inline-flex items-center gap-1 rounded border border-[#e0b64c]/60 bg-gradient-to-r from-[#e0b64c]/25 to-[#e0b64c]/10 px-2 py-0.5 text-[10px] font-display font-bold tracking-widest text-[#e0b64c]">
                       <Medal className="h-3 w-3" /> HALL OF FAME
