@@ -293,7 +293,7 @@ function BoutBuilder({
         <div className="rounded-lg border border-white/10 bg-white/[0.03] px-3 py-2 text-center text-[11px] text-zinc-400">
           {isSuperfight(a, b) ? (
             <span className="font-display font-bold tracking-widest text-[#e0b64c]">
-              <Crown className="mr-1 inline h-3 w-3" /> CHAMPIONSHIP SUPERFIGHT — BOTH TITLES ON THE LINE — 5 ROUNDS
+              <Crown className="mr-1 inline h-3 w-3" /> CHAMPIONSHIP SUPERFIGHT — ALL TITLES ON THE LINE — 5 ROUNDS
             </span>
           ) : isTitleBout(a, b) ? (
             <span className="font-display font-bold tracking-widest text-[#e0b64c]">
@@ -365,7 +365,7 @@ function BoutRow({ ev, bout, index }: { ev: SimEvent; bout: SimEventBout; index:
     label,
     rounds: effectiveRounds(bout, a, b),
     source: { eventId: ev.id, boutId: bout.id },
-    title: superfight ? "Superfight — Both Titles" : isTitle ? "Championship Bout" : undefined,
+    title: superfight ? "Superfight — All Titles" : isTitle ? "Championship Bout" : undefined,
   };
 
   return (
@@ -386,7 +386,7 @@ function BoutRow({ ev, bout, index }: { ev: SimEvent; bout: SimEventBout; index:
           </span>
           {superfight && (
             <span className="inline-flex items-center gap-1 rounded border border-[#e0b64c]/70 bg-gradient-to-r from-[#e0b64c]/25 to-[#e0b64c]/5 px-1.5 py-px text-[9px] font-display font-bold tracking-widest text-[#e0b64c]">
-              <Crown className="h-2.5 w-2.5" /> SUPERFIGHT · BOTH TITLES
+              <Crown className="h-2.5 w-2.5" /> SUPERFIGHT · ALL TITLES
             </span>
           )}
           {isTitle && !superfight && (

@@ -68,6 +68,18 @@ function setChamp(div: DivisionId, f: Fighter): void {
   f.champOf = [...belts];
   f.isChampion = true;
   f.rank = null;
+  // Winning a belt in ANOTHER division moves the fighter's fighting weight
+  // to that division (men's ↔ men's, women's ↔ women's). The move only ever
+  // happens through a user-booked cross-division title win — never
+  // automatically — so no division ever gets held up: the user can always
+  // book the multi-division champ to defend any belt he carries, and the
+  // belt count keeps growing (double … 8-division champ).
+  if (
+    div !== f.division &&
+    DIVISION_MAP[div].division === DIVISION_MAP[f.division].division
+  ) {
+    f.division = div;
+  }
 }
 
 function clearChamp(div: DivisionId, f: Fighter): void {
@@ -79,16 +91,29 @@ function clearChamp(div: DivisionId, f: Fighter): void {
   }
 }
 
+// how the UI crowns a multi-division champion
+export function beltCountLabel(n: number): string {
+  if (n <= 1) return "CHAMPION";
+  if (n === 2) return "DOUBLE CHAMP";
+  if (n === 3) return "TRIPLE CHAMP";
+  if (n === 4) return "QUADRUPLE CHAMP";
+  if (n === 5) return "QUINTUPLE CHAMP";
+  return `${n}-DIVISION CHAMP`;
+}
+
 // THE belt logic, run the moment a universe bout is decided:
 //   • classic title fight (same division, champ beaten) — belt moves
+//   • cross-division belt defense (a fighter holding a belt in the bout's
+//     weight class loses it there) — that belt moves
 //   • superfight (champ vs champ, cross-division) — EVERY belt the loser
-//     holds moves to the winner: the winner leaves as double champ, the
-//     loser leaves empty-handed
-// Idempotent: replaying the same result (rehydrate) changes nothing.
+//     holds moves to the winner: double champ → triple → … 8-division champ
+// `wc` is the weight class the bout was contested at. Idempotent: replaying
+// the same result (rehydrate) changes nothing.
 export function transferBelts(
   a: Fighter,
   b: Fighter,
-  winner: "A" | "B" | "DRAW" | "NC"
+  winner: "A" | "B" | "DRAW" | "NC",
+  wc?: DivisionId
 ): BeltChange[] {
   if (winner !== "A" && winner !== "B") return [];
   const win = winner === "A" ? a : b;
@@ -98,17 +123,19 @@ export function transferBelts(
   const changes: BeltChange[] = [];
 
   if (isSuperfight(a, b)) {
-    // champion vs champion — both titles on the line
+    // champion vs champion — all of the loser's titles on the line
     for (const div of loseBelts) {
       if (winBelts.has(div)) continue;
       clearChamp(div, lose);
       setChamp(div, win);
       changes.push({ newChamp: win, oldChamp: lose, div, divName: DIVISION_MAP[div].name });
     }
-  } else if (a.division === b.division) {
-    // classic title fight — the beaten champ drops the belt
-    const div = a.division;
-    if (loseBelts.includes(div) && !winBelts.has(div)) {
+  } else {
+    // classic title fight / cross-division belt defense — the beaten champ
+    // drops the belt that was contested (the bout's weight class, falling
+    // back to their shared division for same-division bouts)
+    const div = wc ?? (a.division === b.division ? a.division : undefined);
+    if (div && loseBelts.includes(div) && !winBelts.has(div)) {
       clearChamp(div, lose);
       setChamp(div, win);
       changes.push({ newChamp: win, oldChamp: lose, div, divName: DIVISION_MAP[div].name });

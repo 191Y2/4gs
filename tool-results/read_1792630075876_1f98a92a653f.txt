@@ -1,0 +1,711 @@
+     1→"use client";
+     2→
+     3→// ============ OCTAGONHQ UNIVERSE ============
+     4→// The UFC simulator. Fight Lab bookings are just a lab — they never touch
+     5→// records. The ONLY thing that changes a fighter's career is fighting on a
+     6→// user-created EVENT: one event per week (Saturdays, first week = Oct 17,
+     7→// 2026), numbered events + Fight Nights, cards built bout-by-bout.
+     8→//
+     9→// Event results:
+    10→//   • count toward both fighters' records (OCTAGONHQ record, starts 0-0)
+    11→//   • move championships (champ loses a title fight → belt changes hands)
+    12→//   • drive the OCTAGONHQ rankings (points from universe fights only)
+    13→//
+    14→// Everything persists to localStorage and replays on reload.
+    15→
+    16→import { useEffect, useState } from "react";
+    17→import { Fighter, FightLogEntry, WinMethod, DivisionId, SimEvent, SimEventBout, EventSection } from "./types";
+    18→import { getFighter, DIVISION_MAP, ROSTER } from "./data";
+    19→import { transferBelts, isSuperfight, champDivisions, BeltChange } from "./belts";
+    20→import { SimResult } from "./engine";
+    21→
+    22→const STORAGE_KEY = "octagon-hq-universe-v1";
+    23→const LEGACY_CAREERS_KEY = "octagon-hq-careers-v1"; // fight-lab era cache — wiped
+    24→
+    25→// The first fight week. Even if today is Oct 18, the week's Saturday is
+    26→// Oct 17 — that's day one of the universe.
+    27→export const FIRST_SATURDAY = new Date(2026, 9, 17); // Oct 17, 2026
+    28→export const FIRST_EVENT_NUMBER = 334; // next numbered event after UFC 333
+    29→
+    30→// ---------- change propagation ----------
+    31→const listeners = new Set<() => void>();
+    32→let version = 0;
+    33→
+    34→function bump() {
+    35→  version++;
+    36→  listeners.forEach((l) => l());
+    37→}
+    38→
+    39→export function onUniverseChange(cb: () => void): () => void {
+    40→  listeners.add(cb);
+    41→  return () => {
+    42→    listeners.delete(cb);
+    43→  };
+    44→}
+    45→
+    46→export function useUniverseVersion(): void {
+    47→  const [, force] = useState(0);
+    48→  useEffect(() => onUniverseChange(() => force((v) => v + 1)), []);
+    49→}
+    50→
+    51→// ---------- calendar ----------
+    52→// weeks run Saturday → Friday; every event happens on its week's Saturday.
+    53→// The clock is PURE universe time — the real-world calendar is irrelevant.
+    54→// The first fight week is Oct 17, 2026; the moment a card is completed the
+    55→// next Saturday unlocks, and that rolls on FOREVER: Fight Night 1 → UFC 334
+    56→// → Fight Night 2 → UFC 335… one card every Saturday, endlessly. An
+    57→// unfinished card pins the clock on its own Saturday until it's run or
+    58→// scrapped.
+    59→export function currentSaturday(): Date {
+    60→  if (state.events.length === 0) return new Date(FIRST_SATURDAY);
+    61→  const latest = state.events.reduce((m, e) => (e.dateISO > m.dateISO ? e : m));
+    62→  if (!latest.completed) return dateOfIso(latest.dateISO);
+    63→  // card done — the next fight week unlocks instantly, forever
+    64→  const next = dateOfIso(latest.dateISO);
+    65→  next.setDate(next.getDate() + 7);
+    66→  return next;
+    67→}
+    68→
+    69→export function isoOf(d: Date): string {
+    70→  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+    71→}
+    72→
+    73→export function dateOfIso(iso: string): Date {
+    74→  const [y, m, d] = iso.split("-").map(Number);
+    75→  return new Date(y, (m ?? 1) - 1, d ?? 1);
+    76→}
+    77→
+    78→export function prettyDate(iso: string): string {
+    79→  return dateOfIso(iso).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+    80→}
+    81→
+    82→export function shortDate(iso: string): string {
+    83→  return dateOfIso(iso).toLocaleDateString("en-US", { month: "short", day: "numeric" });
+    84→}
+    85→
+    86→// ---------- state ----------
+    87→interface UniverseState {
+    88→  events: SimEvent[];
+    89→  ledger: UniverseBout[];
+    90→}
+    91→
+    92→export interface UniverseBout {
+    93→  boutId: string;     // idempotency key — one ledger rec per event bout, ever
+    94→  aId: string;
+    95→  bId: string;
+    96→  winner: "A" | "B" | "DRAW" | "NC";
+    97→  method: WinMethod;
+    98→  detail?: string;
+    99→  round: number;
+   100→  time: string;
+   101→  evName: string;      // "UFC 334"
+   102→  section: EventSection;
+   103→  date: string;        // "Oct 17, 2026"
+   104→  wc?: DivisionId;     // weight class the fight was contested at
+   105→  title?: boolean;     // title fight flag
+   106→}
+   107→
+   108→let state: UniverseState = { events: [], ledger: [] };
+   109→let hydrated = false;
+   110→
+   111→function save() {
+   112→  if (typeof window === "undefined") return;
+   113→  try {
+   114→    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+   115→  } catch {
+   116→    // storage full / disabled — universe still lives this session
+   117→  }
+   118→}
+   119→
+   120→function uid(): string {
+   121→  return typeof crypto !== "undefined" && crypto.randomUUID
+   122→    ? crypto.randomUUID()
+   123→    : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+   124→}
+   125→
+   126→// ---------- record application ----------
+   127→function methodSplit(m: WinMethod): "ko" | "sub" | "dec" {
+   128→  if (m === "KO") return "ko";
+   129→  if (m === "SUB") return "sub";
+   130→  return "dec";
+   131→}
+   132→
+   133→function boutWeightClass(a: Fighter, b: Fighter): DivisionId {
+   134→  if (a.division === b.division) return a.division;
+   135→  return (DIVISION_MAP[a.division]?.limit ?? 0) >= (DIVISION_MAP[b.division]?.limit ?? 0)
+   136→    ? a.division
+   137→    : b.division;
+   138→}
+   139→
+   140→// same-division bout with a reigning champion = classic title fight. A
+   141→// champ vs champ cross-division bout = SUPERFIGHT — both belts on the line
+   142→// and the winner becomes a double champ. Everyone in this universe fights
+   143→// in their prime; a legend booked against the champ is a title fight and
+   144→// the belt CAN move, same as anyone else.
+   145→export function isTitleBout(a: Fighter, b: Fighter): boolean {
+   146→  if (a.division === b.division) return !!(a.isChampion || b.isChampion);
+   147→  return isSuperfight(a, b);
+   148→}
+   149→
+   150→// rounds a bout should be fought at TODAY — the belt may have moved onto
+   151→// (or off) one of these fighters after the bout was booked, and title
+   152→// bouts are always 5 rounds
+   153→export function effectiveRounds(bout: SimEventBout, a: Fighter, b: Fighter): 3 | 5 {
+   154→  return bout.title || isTitleBout(a, b) ? 5 : bout.rounds;
+   155→}
+   156→
+   157→function sectionLabel(bout: SimEventBout, ev: SimEvent): string {
+   158→  const list = ev.bouts.filter((b) => b.section === bout.section);
+   159→  const idx = list.findIndex((b) => b.id === bout.id);
+   160→  if (bout.section === "main") {
+   161→    if (idx === 0) return "MAIN EVENT";
+   162→    if (idx === 1) return "CO-MAIN EVENT";
+   163→    return "MAIN CARD";
+   164→  }
+   165→  if (bout.section === "prelim") return "PRELIMS";
+   166→  return "EARLY PRELIMS";
+   167→}
+   168→
+   169→// apply one universe bout to both fighters (live + replay)
+   170→function applyBout(a: Fighter, b: Fighter, rec: UniverseBout) {
+   171→  const resA: FightLogEntry["res"] =
+   172→    rec.winner === "A" ? "W" : rec.winner === "B" ? "L" : rec.winner === "DRAW" ? "D" : "NC";
+   173→  const resB: FightLogEntry["res"] =
+   174→    rec.winner === "B" ? "W" : rec.winner === "A" ? "L" : rec.winner === "DRAW" ? "D" : "NC";
+   175→
+   176→  const base = {
+   177→    ev: `${rec.evName} · ${rec.section === "main" ? "MAIN EVENT" : rec.section === "prelim" ? "PRELIMS" : "EARLY PRELIMS"}`,
+   178→    date: rec.date,
+   179→    m: rec.method,
+   180→    det: rec.detail,
+   181→    r: rec.round,
+   182→    t: rec.time,
+   183→    wc: rec.wc,
+   184→    title: rec.title ? ("T" as const) : undefined,
+   185→    sim: true as const,
+   186→  };
+   187→  a.log.push({ ...base, op: b.name, res: resA });
+   188→  b.log.push({ ...base, op: a.name, res: resB });
+   189→
+   190→  // OCTAGONHQ universe records (starts 0-0 — real W-L never changes)
+   191→  if (resA === "W") a.simW = (a.simW ?? 0) + 1;
+   192→  else if (resA === "L") a.simL = (a.simL ?? 0) + 1;
+   193→  else if (resA === "D") a.simD = (a.simD ?? 0) + 1;
+   194→  if (resB === "W") b.simW = (b.simW ?? 0) + 1;
+   195→  else if (resB === "L") b.simL = (b.simL ?? 0) + 1;
+   196→  else if (resB === "D") b.simD = (b.simD ?? 0) + 1;
+   197→}
+   198→
+   199→export function simRecord(f: Fighter): { w: number; l: number; d: number } {
+   200→  return { w: f.simW ?? 0, l: f.simL ?? 0, d: f.simD ?? 0 };
+   201→}
+   202→
+   203→// ---------- venues ----------
+   204→const VENUES: { venue: string; city: string }[] = [
+   205→  { venue: "T-Mobile Arena", city: "Las Vegas, NV" },
+   206→  { venue: "Etihad Arena", city: "Abu Dhabi, UAE" },
+   207→  { venue: "The O2", city: "London, UK" },
+   208→  { venue: "Madison Square Garden", city: "New York, NY" },
+   209→  { venue: "Kaseya Center", city: "Miami, FL" },
+   210→  { venue: "RAC Arena", city: "Perth, Australia" },
+   211→  { venue: "Fontainebleau Las Vegas", city: "Las Vegas, NV" },
+   212→  { venue: "Ginasio do Ibirapuera", city: "São Paulo, Brazil" },
+   213→  { venue: "Enterprise Center", city: "St. Louis, MO" },
+   214→  { venue: "Qudos Bank Arena", city: "Sydney, Australia" },
+   215→  { venue: "Co-op Live", city: "Manchester, UK" },
+   216→  { venue: " Rogers Arena", city: "Vancouver, Canada" },
+   217→];
+   218→
+   219→// ---------- event API ----------
+   220→export function events(): SimEvent[] {
+   221→  return state.events;
+   222→}
+   223→
+   224→export function universeBouts(): UniverseBout[] {
+   225→  return state.ledger;
+   226→}
+   227→
+   228→export function universeActive(): boolean {
+   229→  return state.ledger.length > 0;
+   230→}
+   231→
+   232→export function currentWeekEvent(): SimEvent | undefined {
+   233→  const iso = isoOf(currentSaturday());
+   234→  return state.events.find((e) => e.dateISO === iso);
+   235→}
+   236→
+   237→export function pastEvents(): SimEvent[] {
+   238→  const iso = isoOf(currentSaturday());
+   239→  return state.events.filter((e) => e.dateISO < iso).sort((a, b) => (a.dateISO < b.dateISO ? 1 : -1));
+   240→}
+   241→
+   242→export function eventDisplayName(ev: SimEvent): string {
+   243→  if (ev.type === "numbered") return `UFC ${ev.number}`;
+   244→  if (ev.number != null) return `UFC Fight Night ${ev.number}`;
+   245→  // pre-numbering fight night — fall back to a main-event name
+   246→  const main = ev.bouts.find((b) => b.section === "main");
+   247→  if (main) {
+   248→    const a = getFighter(main.aId);
+   249→    const b = getFighter(main.bId);
+   250→    if (a && b) return `UFC Fight Night: ${a.name.split(" ").slice(-1)[0]} vs ${b.name.split(" ").slice(-1)[0]}`;
+   251→  }
+   252→  return "UFC Fight Night";
+   253→}
+   254→
+   255→// main-event tagline for card headers ("Topuria vs Evloev")
+   256→export function eventTagline(ev: SimEvent): string | null {
+   257→  const main = ev.bouts.find((b) => b.section === "main");
+   258→  if (!main) return null;
+   259→  const a = getFighter(main.aId);
+   260→  const b = getFighter(main.bId);
+   261→  if (!a || !b) return null;
+   262→  return `${a.name.split(" ").slice(-1)[0]} vs ${b.name.split(" ").slice(-1)[0]}`;
+   263→}
+   264→
+   265→export function eventBouts(ev: SimEvent, section: EventSection): SimEventBout[] {
+   266→  return ev.bouts.filter((b) => b.section === section).sort((a, b) => a.order - b.order);
+   267→}
+   268→
+   269→export function boutSectionLabel(ev: SimEvent, bout: SimEventBout): string {
+   270→  return sectionLabel(bout, ev);
+   271→}
+   272→
+   273→// one numbered event per calendar month — after that it's Fight Nights
+   274→export function numberedAvailableThisMonth(dateISO: string): boolean {
+   275→  const d = dateOfIso(dateISO);
+   276→  return !state.events.some((e) => {
+   277→    if (e.type !== "numbered") return false;
+   278→    const ed = dateOfIso(e.dateISO);
+   279→    return ed.getFullYear() === d.getFullYear() && ed.getMonth() === d.getMonth();
+   280→  });
+   281→}
+   282→
+   283→export function nextEventNumber(): number {
+   284→  const max = state.events.reduce((m, e) => Math.max(m, e.number ?? 0), 0);
+   285→  return Math.max(FIRST_EVENT_NUMBER, max + 1);
+   286→}
+   287→
+   288→// Fight Nights carry their own infinite counter — Fight Night 1, 2, 3…
+   289→export function nextFightNightNumber(): number {
+   290→  let max = 0;
+   291→  let count = 0;
+   292→  for (const e of state.events) {
+   293→    if (e.type !== "fightnight") continue;
+   294→    count++;
+   295→    max = Math.max(max, e.number ?? 0);
+   296→  }
+   297→  return Math.max(count, max) + 1;
+   298→}
+   299→
+   300→// The event the calendar itself books this Saturday: the inaugural card is
+   301→// Fight Night 1; after that, the month's numbered (PPV) slot belongs to the
+   302→// first week of the month that hasn't spent it — every other week is a
+   303→// Fight Night. One click, the sequence just rolls.
+   304→export function autoEventType(dateISO: string): "numbered" | "fightnight" {
+   305→  if (state.events.length === 0) return "fightnight";
+   306→  return numberedAvailableThisMonth(dateISO) ? "numbered" : "fightnight";
+   307→}
+   308→
+   309→export interface WeekSlot {
+   310→  iso: string;
+   311→  type: "numbered" | "fightnight";
+   312→  name: string;
+   313→}
+   314→
+   315→// THE ROAD AHEAD — the infinite schedule: the next Saturdays and the events
+   316→// the calendar would auto-book on them (override any week at creation).
+   317→export function upcomingWeeks(count = 6): WeekSlot[] {
+   318→  const slots: WeekSlot[] = [];
+   319→  let d = currentSaturday();
+   320→  let ufc = nextEventNumber();
+   321→  let fn = nextFightNightNumber();
+   322→  const numberedMonths = new Set(
+   323→    state.events.filter((e) => e.type === "numbered").map((e) => e.dateISO.slice(0, 7))
+   324→  );
+   325→  for (let i = 0; i < count; i++) {
+   326→    const iso = isoOf(d);
+   327→    const ym = iso.slice(0, 7);
+   328→    const type: "numbered" | "fightnight" =
+   329→      i === 0 ? autoEventType(iso) : numberedMonths.has(ym) ? "fightnight" : "numbered";
+   330→    slots.push({ iso, type, name: type === "numbered" ? `UFC ${ufc}` : `UFC Fight Night ${fn}` });
+   331→    if (type === "numbered") {
+   332→      ufc++;
+   333→      numberedMonths.add(ym);
+   334→    } else {
+   335→      fn++;
+   336→    }
+   337→    d = new Date(d.getFullYear(), d.getMonth(), d.getDate() + 7);
+   338→  }
+   339→  return slots;
+   340→}
+   341→
+   342→// scrap an unbuilt card (nothing fought yet, so nothing to unwind) — the
+   343→// fight week re-opens for a fresh booking
+   344→export function scrapEvent(eventId: string): boolean {
+   345→  const ev = state.events.find((e) => e.id === eventId);
+   346→  if (!ev || ev.completed) return false;
+   347→  if (ev.bouts.some((b) => b.result)) return false;
+   348→  state.events = state.events.filter((e) => e.id !== eventId);
+   349→  save();
+   350→  bump();
+   351→  return true;
+   352→}
+   353→
+   354→export interface CreateEventResult {
+   355→  ok: boolean;
+   356→  reason?: string;
+   357→  event?: SimEvent;
+   358→}
+   359→
+   360→export function createEvent(type?: "numbered" | "fightnight"): CreateEventResult {
+   361→  const iso = isoOf(currentSaturday());
+   362→  const chosen = type ?? autoEventType(iso);
+   363→  if (state.events.some((e) => e.dateISO === iso)) {
+   364→    return { ok: false, reason: "This week already has an event — run it, scrap it, or check the card." };
+   365→  }
+   366→  if (chosen === "numbered" && !numberedAvailableThisMonth(iso)) {
+   367→    return { ok: false, reason: "A numbered event already ran this month — book a Fight Night." };
+   368→  }
+   369→  const spot = VENUES[state.events.length % VENUES.length];
+   370→  const ev: SimEvent = {
+   371→    id: uid(),
+   372→    type: chosen,
+   373→    number: chosen === "numbered" ? nextEventNumber() : nextFightNightNumber(),
+   374→    dateISO: iso,
+   375→    venue: spot.venue.trim(),
+   376→    city: spot.city,
+   377→    bouts: [],
+   378→    completed: false,
+   379→    createdAt: Date.now(),
+   380→  };
+   381→  state.events = [...state.events, ev];
+   382→  save();
+   383→  bump();
+   384→  return { ok: true, event: ev };
+   385→}
+   386→
+   387→export function addBout(eventId: string, aId: string, bId: string, section: EventSection): SimEventBout | null {
+   388→  const ev = state.events.find((e) => e.id === eventId);
+   389→  const a = getFighter(aId);
+   390→  const b = getFighter(bId);
+   391→  if (!ev || !a || !b || a.id === b.id) return null;
+   392→  // same fighter can't be booked twice on one card
+   393→  if (ev.bouts.some((x) => x.aId === a.id || x.bId === a.id || x.aId === b.id || x.bId === b.id)) return null;
+   394→  const order = ev.bouts.filter((x) => x.section === section).length;
+   395→  const bout: SimEventBout = {
+   396→    id: uid(),
+   397→    aId: a.id,
+   398→    bId: b.id,
+   399→    section,
+   400→    order,
+   401→    rounds: isTitleBout(a, b) ? 5 : 3,
+   402→    title: isTitleBout(a, b) || undefined,
+   403→    result: null,
+   404→  };
+   405→  ev.bouts = [...ev.bouts, bout];
+   406→  save();
+   407→  bump();
+   408→  return bout;
+   409→}
+   410→
+   411→export function removeBout(eventId: string, boutId: string): void {
+   412→  const ev = state.events.find((e) => e.id === eventId);
+   413→  if (!ev) return;
+   414→  const bout = ev.bouts.find((b) => b.id === boutId);
+   415→  if (bout?.result) return; // already fought — it's history now
+   416→  ev.bouts = ev.bouts.filter((b) => b.id !== boutId);
+   417→  ev.bouts.filter((b) => b.section === bout?.section).forEach((b, i) => (b.order = i));
+   418→  save();
+   419→  bump();
+   420→}
+   421→
+   422→export function moveBout(eventId: string, boutId: string, dir: -1 | 1): void {
+   423→  const ev = state.events.find((e) => e.id === eventId);
+   424→  if (!ev) return;
+   425→  const bout = ev.bouts.find((b) => b.id === boutId);
+   426→  if (!bout || bout.result) return;
+   427→  const list = ev.bouts.filter((b) => b.section === bout.section).sort((a, b) => a.order - b.order);
+   428→  const idx = list.findIndex((b) => b.id === boutId);
+   429→  const swapIdx = idx + dir;
+   430→  if (swapIdx < 0 || swapIdx >= list.length) return;
+   431→  const other = list[swapIdx];
+   432→  if (other.result) return;
+   433→  const t = bout.order;
+   434→  bout.order = other.order;
+   435→  other.order = t;
+   436→  save();
+   437→  bump();
+   438→}
+   439→
+   440→export interface RecordOutcome {
+   441→  evName: string;
+   442→  belts: BeltChange[];
+   443→  note: string;
+   444→}
+   445→
+   446→// THE moment a universe event bout is decided: careers update, belts can
+   447→// change hands (one in a title fight, both in a superfight), and the ledger
+   448→// grows. Lab fights NEVER call this. Doubly guarded: the bout's own result
+   449→// flag AND the ledger's boutId key — a fight can only ever be written once.
+   450→export function recordEventBout(eventId: string, boutId: string, sim: SimResult): RecordOutcome | null {
+   451→  const ev = state.events.find((e) => e.id === eventId);
+   452→  const bout = ev?.bouts.find((b) => b.id === boutId);
+   453→  if (!ev || !bout || bout.result) return null;
+   454→  if (state.ledger.some((r) => r.boutId === bout.id)) return null;
+   455→  const a = getFighter(bout.aId);
+   456→  const b = getFighter(bout.bId);
+   457→  if (!a || !b) return null;
+   458→
+   459→  // championship status is computed at the bell — belts can already have
+   460→  // moved earlier on this same card
+   461→  const title = bout.title || isTitleBout(a, b);
+   462→  const date = prettyDate(ev.dateISO);
+   463→  const rec: UniverseBout = {
+   464→    boutId: bout.id,
+   465→    aId: a.id,
+   466→    bId: b.id,
+   467→    winner: sim.winner,
+   468→    method: sim.method,
+   469→    detail: sim.detail,
+   470→    round: sim.round,
+   471→    time: sim.time,
+   472→    evName: eventDisplayName(ev),
+   473→    section: bout.section,
+   474→    date,
+   475→    wc: boutWeightClass(a, b),
+   476→    title,
+   477→  };
+   478→  applyBout(a, b, rec);
+   479→  state.ledger = [...state.ledger, rec];
+   480→
+   481→  bout.result = {
+   482→    winner: sim.winner,
+   483→    method: sim.method,
+   484→    detail: sim.detail,
+   485→    round: sim.round,
+   486→    time: sim.time,
+   487→  };
+   488→  if (title && sim.winner !== "A" && sim.winner !== "B") bout.title = undefined;
+   489→
+   490→  // belts can change hands right here — one, or both in a superfight
+   491→  const belts = transferBelts(a, b, sim.winner);
+   492→
+   493→  if (ev.bouts.every((x) => x.result)) ev.completed = true;
+   494→  save();
+   495→  bump();
+   496→
+   497→  const w = sim.winner === "A" ? a : b;
+   498→  const l = sim.winner === "A" ? b : a;
+   499→  return {
+   500→    evName: eventDisplayName(ev),
+   501→    belts,
+   502→    note:
+   503→      sim.winner === "DRAW" || sim.winner === "NC"
+   504→        ? `${a.name} vs ${b.name} — a draw goes on both records at ${eventDisplayName(ev)}`
+   505→        : `${w.name} def. ${l.name} — written onto both career records`,
+   506→  };
+   507→}
+   508→
+   509→// ---------- OCTAGONHQ rankings ----------
+   510→// Points come ONLY from universe event fights: decision win +3, finish +4,
+   511→// title-fight win +1, draw +1. Champion sits on top; ties break on wins,
+   512→// finishes, then real-world seeding.
+   513→export interface Standing {
+   514→  fighter: Fighter;
+   515→  pts: number;
+   516→  simW: number;
+   517→  simL: number;
+   518→  simD: number;
+   519→  finishes: number;
+   520→  rank: number | "C";
+   521→}
+   522→
+   523→function pointsFromLedger(): Map<string, { pts: number; finishes: number }> {
+   524→  const map = new Map<string, { pts: number; finishes: number }>();
+   525→  for (const b of state.ledger) {
+   526→    const winnerId = b.winner === "A" ? b.aId : b.winner === "B" ? b.bId : null;
+   527→    const finish = b.method === "KO" || b.method === "SUB";
+   528→    if (winnerId) {
+   529→      const cur = map.get(winnerId) ?? { pts: 0, finishes: 0 };
+   530→      cur.pts += (finish ? 4 : 3) + (b.title ? 1 : 0);
+   531→      if (finish) cur.finishes += 1;
+   532→      map.set(winnerId, cur);
+   533→    } else {
+   534→      for (const id of [b.aId, b.bId]) {
+   535→        const cur = map.get(id) ?? { pts: 0, finishes: 0 };
+   536→        cur.pts += 1;
+   537→        map.set(id, cur);
+   538→      }
+   539→    }
+   540→  }
+   541→  return map;
+   542→}
+   543→
+   544→export function divisionStandings(div: DivisionId): Standing[] {
+   545→  const pts = pointsFromLedger();
+   546→  // the division's champ can live anywhere on the roster — a DOUBLE CHAMP
+   547→  // (superfight winner) holds this belt even if he fights out of another
+   548→  // division, so search the full roster, not just this division's list
+   549→  const champ = ROSTER.find((f) => champDivisions(f).includes(div));
+   550→  const others = getDivision(div)
+   551→    .filter((f) => !champDivisions(f).includes(div))
+   552→    .map((f) => {
+   553→      const p = pts.get(f.id) ?? { pts: 0, finishes: 0 };
+   554→      const s = simRecord(f);
+   555→      return { fighter: f, pts: p.pts, finishes: p.finishes, simW: s.w, simL: s.l, simD: s.d, rank: 0 as number | "C" };
+   556→    })
+   557→    .sort((x, y) => {
+   558→      if (y.pts !== x.pts) return y.pts - x.pts;
+   559→      if (y.simW !== x.simW) return y.simW - x.simW;
+   560→      if (y.finishes !== x.finishes) return y.finishes - x.finishes;
+   561→      const rx = x.fighter.rank ?? 99;
+   562→      const ry = y.fighter.rank ?? 99;
+   563→      if (rx !== ry) return rx - ry;
+   564→      return y.fighter.elo - x.fighter.elo;
+   565→    });
+   566→  const out: Standing[] = [];
+   567→  if (champ) {
+   568→    const p = pts.get(champ.id) ?? { pts: 0, finishes: 0 };
+   569→    const s = simRecord(champ);
+   570→    out.push({ fighter: champ, pts: p.pts, finishes: p.finishes, simW: s.w, simL: s.l, simD: s.d, rank: "C" });
+   571→  }
+   572→  others.forEach((o, i) => {
+   573→    o.rank = i + 1;
+   574→    out.push(o as Standing);
+   575→  });
+   576→  return out;
+   577→}
+   578→
+   579→// OCTAGONHQ rank label for a fighter: "C" (champ), "#1".."#15", or "UNRANKED".
+   580→// Mirrors DivisionsTab — only the top 15 contenders are ranked.
+   581→// Cached per universe version so bulk consumers (picker sort) stay instant.
+   582→let rankLabelCache: { version: number; map: Map<string, string> } | null = null;
+   583→
+   584→export function hqRankMap(): Map<string, string> {
+   585→  if (rankLabelCache && rankLabelCache.version === version) return rankLabelCache.map;
+   586→  const map = new Map<string, string>();
+   587→  for (const d of Object.keys(DIVISION_MAP) as DivisionId[]) {
+   588→    for (const s of divisionStandings(d)) {
+   589→      map.set(s.fighter.id, s.rank === "C" ? "C" : s.rank <= 15 ? `#${s.rank}` : "UNRANKED");
+   590→    }
+   591→  }
+   592→  rankLabelCache = { version, map };
+   593→  return map;
+   594→}
+   595→
+   596→export function hqRankLabel(fighterId: string): string {
+   597→  const f = ROSTER.find((x) => x.id === fighterId);
+   598→  if (!f) return "UNRANKED";
+   599→  if (f.isChampion) return "C";
+   600→  return hqRankMap().get(f.id) ?? "UNRANKED";
+   601→}
+   602→
+   603→// division roster for standings
+   604→function getDivision(div: DivisionId): Fighter[] {
+   605→  return ROSTER.filter((f) => f.division === div);
+   606→}
+   607→
+   608→// universe pound-for-pound: champs by points, then top points scorers
+   609→export function simP4P(gender: "men" | "women"): { fighter: Fighter; pts: number; rank: number | "C" }[] {
+   610→  const pts = pointsFromLedger();
+   611→  const pool = ROSTER.filter((f) => DIVISION_MAP[f.division].division === gender);
+   612→  const champs = pool.filter((f) => champDivisions(f).length > 0);
+   613→  const rest = pool.filter((f) => !f.isChampion);
+   614→  const champsRanked = champs.map((f) => ({ fighter: f, pts: pts.get(f.id)?.pts ?? 0, rank: "C" as number | "C" }));
+   615→  const restRanked = rest
+   616→    .map((f) => ({ fighter: f, pts: pts.get(f.id)?.pts ?? 0, rank: 0 as number | "C" }))
+   617→    .sort((a, b) => b.pts - a.pts || b.fighter.elo - a.fighter.elo)
+   618→    .slice(0, Math.max(0, 10 - champs.length));
+   619→  return [...champsRanked, ...restRanked].slice(0, 10);
+   620→}
+   621→
+   622→// ---------- persistence ----------
+   623→export function rehydrateUniverse(): void {
+   624→  if (hydrated || typeof window === "undefined") return;
+   625→  hydrated = true;
+   626→  // wipe the old fight-lab careers cache — those records were never real
+   627→  try {
+   628→    window.localStorage.removeItem(LEGACY_CAREERS_KEY);
+   629→  } catch {
+   630→    /* ignore */
+   631→  }
+   632→  let raw: string | null = null;
+   633→  try {
+   634→    raw = window.localStorage.getItem(STORAGE_KEY);
+   635→  } catch {
+   636→    raw = null;
+   637→  }
+   638→  if (!raw) return;
+   639→  try {
+   640→    const parsed = JSON.parse(raw) as UniverseState;
+   641→    if (!parsed || !Array.isArray(parsed.events)) return;
+   642→    state = { events: parsed.events, ledger: [] };
+   643→
+   644→    // migrate: legacy fight nights get their infinite numbers (Fight Night
+   645→    // 1, 2, 3… in fight order); the old display name is kept so any open
+   646→    // wallet bets placed under it still settle
+   647→    let fn = 1;
+   648→    let changed = false;
+   649→    const ordered = [...state.events].sort((a, b) => (a.dateISO < b.dateISO ? -1 : a.dateISO > b.dateISO ? 1 : (a.createdAt ?? 0) - (b.createdAt ?? 0)));
+   650→    for (const ev of ordered) {
+   651→      if (ev.type !== "fightnight") continue;
+   652→      if (ev.number == null) {
+   653→        ev.legacyName = eventDisplayName(ev); // capture BEFORE numbering
+   654→        ev.number = fn;
+   655→        changed = true;
+   656→      }
+   657→      fn = Math.max(fn, ev.number + 1);
+   658→    }
+   659→
+   660→    // REBUILD THE LEDGER FROM EVENT RESULTS — the stored ledger array is
+   661→    // deliberately IGNORED. Older builds could append the same bout several
+   662→    // times (the 4x duplication bug: every fight showed as four identical
+   663→    // history entries and records counted 4x). Events are the source of
+   664→    // truth: every fought bout carries exactly ONE result object, so
+   665→    // rebuilding here heals any duplicated ledger on load — records,
+   666→    // histories, rankings and belt lineage all come out exact.
+   667→    for (const ev of ordered) {
+   668→      for (const bout of [...ev.bouts].sort((x, y) => x.order - y.order)) {
+   669→        if (!bout.result) continue;
+   670→        const a = getFighter(bout.aId);
+   671→        const b = getFighter(bout.bId);
+   672→        if (!a || !b || a.id === b.id) continue;
+   673→        const rec: UniverseBout = {
+   674→          boutId: bout.id,
+   675→          aId: a.id,
+   676→          bId: b.id,
+   677→          winner: bout.result.winner,
+   678→          method: bout.result.method,
+   679→          detail: bout.result.detail,
+   680→          round: bout.result.round,
+   681→          time: bout.result.time,
+   682→          evName: eventDisplayName(ev),
+   683→          section: bout.section,
+   684→          date: prettyDate(ev.dateISO),
+   685→          wc: boutWeightClass(a, b),
+   686→          title: !!bout.title,
+   687→        };
+   688→        applyBout(a, b, rec);
+   689→        transferBelts(a, b, rec.winner);
+   690→        state.ledger.push(rec);
+   691→      }
+   692→      if (!ev.completed && ev.bouts.length > 0 && ev.bouts.every((x) => x.result)) {
+   693→        ev.completed = true;
+   694→        changed = true;
+   695→      }
+   696→    }
+   697→    // persist the healed universe (deduped ledger + boutId keys)
+   698→    save();
+   699→    if (changed || state.ledger.length > 0) bump();
+   700→  } catch {
+   701→    state = { events: [], ledger: [] };
+   702→  }
+   703→}
+   704→
+   705→// wipe the universe and reload back to real Oct 17, 2026 data
+   706→export function resetUniverse(): void {
+   707→  state = { events: [], ledger: [] };
+   708→  save();
+   709→  if (typeof window !== "undefined") window.location.reload();
+   710→}
+   711→

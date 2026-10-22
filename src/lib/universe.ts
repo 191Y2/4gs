@@ -132,19 +132,35 @@ function methodSplit(m: WinMethod): "ko" | "sub" | "dec" {
 
 function boutWeightClass(a: Fighter, b: Fighter): DivisionId {
   if (a.division === b.division) return a.division;
+  // cross-division BELT DEFENSE: a fighter holding a belt in the other's
+  // division fights there — a double/triple champ booked against a
+  // division's contender defends that belt at that weight
+  const beltsA = champDivisions(a);
+  const beltsB = champDivisions(b);
+  const aDefends = beltsA.includes(b.division);
+  const bDefends = beltsB.includes(a.division);
+  if (aDefends && !bDefends) return b.division;
+  if (bDefends && !aDefends) return a.division;
+  // superfight / plain cross-division booking: heavier weight class
   return (DIVISION_MAP[a.division]?.limit ?? 0) >= (DIVISION_MAP[b.division]?.limit ?? 0)
     ? a.division
     : b.division;
 }
 
 // same-division bout with a reigning champion = classic title fight. A
-// champ vs champ cross-division bout = SUPERFIGHT — both belts on the line
-// and the winner becomes a double champ. Everyone in this universe fights
-// in their prime; a legend booked against the champ is a title fight and
-// the belt CAN move, same as anyone else.
+// champ vs champ cross-division bout = SUPERFIGHT — all belts on the line
+// and the winner becomes a double/triple/…/8-division champ. A fighter
+// holding a belt in the OTHER fighter's division = cross-division belt
+// defense — also a title fight. Everyone in this universe fights in their
+// prime; a legend booked against the champ is a title fight and the belt
+// CAN move, same as anyone else.
 export function isTitleBout(a: Fighter, b: Fighter): boolean {
+  if (isSuperfight(a, b)) return true;
+  const beltsA = champDivisions(a);
+  const beltsB = champDivisions(b);
+  if (beltsA.includes(b.division) || beltsB.includes(a.division)) return true;
   if (a.division === b.division) return !!(a.isChampion || b.isChampion);
-  return isSuperfight(a, b);
+  return false;
 }
 
 // rounds a bout should be fought at TODAY — the belt may have moved onto
@@ -487,8 +503,8 @@ export function recordEventBout(eventId: string, boutId: string, sim: SimResult)
   };
   if (title && sim.winner !== "A" && sim.winner !== "B") bout.title = undefined;
 
-  // belts can change hands right here — one, or both in a superfight
-  const belts = transferBelts(a, b, sim.winner);
+  // belts can change hands right here — one, or every belt in a superfight
+  const belts = transferBelts(a, b, sim.winner, rec.wc);
 
   if (ev.bouts.every((x) => x.result)) ev.completed = true;
   save();
@@ -686,7 +702,7 @@ export function rehydrateUniverse(): void {
           title: !!bout.title,
         };
         applyBout(a, b, rec);
-        transferBelts(a, b, rec.winner);
+        transferBelts(a, b, rec.winner, rec.wc);
         state.ledger.push(rec);
       }
       if (!ev.completed && ev.bouts.length > 0 && ev.bouts.every((x) => x.result)) {

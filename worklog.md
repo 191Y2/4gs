@@ -219,3 +219,18 @@ Work Log:
 
 Stage Summary:
 - The "missing Gaethje" bug is dead: search now spans all 11 divisions regardless of the active division chip, with division tags on results. All prior fixes (4x heal, belts, ratings, finishes, double champs) regression-verified intact. The app is provably 100% static (no server, no DB, no fetch) and is being served from out/ on :3000 — upload out/ to GitHub Pages as-is.
+
+---
+Task ID: 14
+Agent: main (Z.ai)
+Task: Double-champ fixes — division follows the belt (no more champs fighting a weight below), cross-division belt defenses, multi-division champs up to 8, women's double champs.
+
+Work Log:
+- belts.ts setChamp: winning a belt in ANOTHER division now moves the fighter's fighting weight to that division (same gender only). The move happens ONLY via user-booked cross-division title wins — never automatically — so no division is ever held up; the user can always book the multi-division champ to defend any belt.
+- belts.ts transferBelts(a,b,winner,wc?): classic path now uses the BOUT's weight class as the contested division (was a.division) — a beaten multi-division champ drops ONLY the belt that was on the line, keeps the rest. Superfight path unchanged (ALL loser belts move). New beltCountLabel(): DOUBLE/TRIPLE/QUADRUPLE/QUINTUPLE/N-DIVISION CHAMP.
+- universe.ts: isTitleBout now detects cross-division BELT DEFENSE (fighter holds a belt in the other's division → title fight); boutWeightClass routes those bouts to the challenger's division (belt defended at that weight); recordEventBout + rehydrate pass rec.wc into transferBelts so replay reproduces exact belt lineage.
+- UI: profile/roster champ badges now "DOUBLE CHAMP — LW + WW" style, generic up to "8-DIVISION CHAMP"; superfight copy changed from "BOTH TITLES" to "ALL TITLES" (loser can hold 2+).
+- E2E on the static build (:3000): FN1 superfight Gaethje(LW champ) vs Makhachev(WW champ) at WW → Gaethje KO win → DOUBLE CHAMP — LW + WW, division chip moved to WW · 170 LB, LW+WW chips on Home. UFC 334: Gaethje vs Belal (WW) auto TITLE 5rds → Belal won → Belal WW champ, Gaethje kept LW only. FN2: Gaethje (division WW, holding LW belt) vs Topuria (LW #1) auto-detected CHAMPIONSHIP BOUT at LW (cross-division defense; Topuria won, took LW) + women's superfight Harrison(WBW champ) vs N.Silva(W-FLW champ) at WBW → Harrison won → DOUBLE CHAMP — WBW + W-FLW, division moved to W-FLW, tops BOTH women's division standings, Natalia demoted to #2. Reload: 4 ledger entries, belt lineage replayed exactly, zero console errors. tsc clean (src), static out/ rebuilt and serving on :3000.
+
+Stage Summary:
+- Champs now fight where their newest belt lives; belts only change hands in bouts the user books (classic defense, cross-division defense, or superfight taking ALL the loser's belts); multi-division champs stack to 8 with proper labels; women's champs can unify women's belts the same way. Belt history replays exactly on reload.

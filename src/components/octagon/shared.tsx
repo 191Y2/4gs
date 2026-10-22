@@ -4,7 +4,7 @@ import { Fighter } from "@/lib/types";
 import { DIVISION_MAP } from "@/lib/data";
 import { overallRating } from "@/lib/engine";
 import { hqRankLabel } from "@/lib/universe";
-import { champDivisions } from "@/lib/belts";
+import { champDivisions, beltCountLabel } from "@/lib/belts";
 import { Crown } from "lucide-react";
 
 // ---------- Flag (works on Windows, unlike flag emoji) ----------
@@ -101,7 +101,7 @@ export function RankBadge({ fighter }: { fighter: Fighter }) {
     return (
       <span className="inline-flex items-center gap-1 rounded bg-[#e0b64c]/15 border border-[#e0b64c]/50 px-1.5 py-0.5 text-[10px] font-display tracking-widest text-[#e0b64c]">
         <Crown className="h-3 w-3" />
-        {belts.length > 1 ? `CHAMPION 2× — ${belts.map((d) => DIVISION_MAP[d].shortName).join(" + ")}` : "CHAMPION"}
+        {belts.length > 1 ? `${beltCountLabel(belts.length)} — ${belts.map((d) => DIVISION_MAP[d].shortName).join(" + ")}` : "CHAMPION"}
       </span>
     );
   }
