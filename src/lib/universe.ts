@@ -16,7 +16,7 @@
 import { useEffect, useState } from "react";
 import { Fighter, FightLogEntry, WinMethod, DivisionId, SimEvent, SimEventBout, EventSection } from "./types";
 import { getFighter, DIVISION_MAP, ROSTER } from "./data";
-import { transferBelts, isSuperfight, champDivisions, BeltChange } from "./belts";
+import { transferBelts, champDivisions, boutWeightClass, beltVacant, isTitleBout, BeltChange } from "./belts";
 import { SimResult } from "./engine";
 
 const STORAGE_KEY = "octagon-hq-universe-v1";
@@ -130,44 +130,42 @@ function methodSplit(m: WinMethod): "ko" | "sub" | "dec" {
   return "dec";
 }
 
-function boutWeightClass(a: Fighter, b: Fighter): DivisionId {
-  if (a.division === b.division) return a.division;
-  // cross-division BELT DEFENSE: a fighter holding a belt in the other's
-  // division fights there — a double/triple champ booked against a
-  // division's contender defends that belt at that weight
-  const beltsA = champDivisions(a);
-  const beltsB = champDivisions(b);
-  const aDefends = beltsA.includes(b.division);
-  const bDefends = beltsB.includes(a.division);
-  if (aDefends && !bDefends) return b.division;
-  if (bDefends && !aDefends) return a.division;
-  // superfight / plain cross-division booking: heavier weight class
-  return (DIVISION_MAP[a.division]?.limit ?? 0) >= (DIVISION_MAP[b.division]?.limit ?? 0)
-    ? a.division
-    : b.division;
-}
+// title-fight logic lives in belts.ts (one belt per fighter): a reigning
+// champ always defends at his belt's weight, so a beaten champ always
+// drops the belt to the man who beat him. Re-exported here for the UI.
+export { isTitleBout };
 
-// same-division bout with a reigning champion = classic title fight. A
-// champ vs champ cross-division bout = SUPERFIGHT — all belts on the line
-// and the winner becomes a double/triple/…/8-division champ. A fighter
-// holding a belt in the OTHER fighter's division = cross-division belt
-// defense — also a title fight. Everyone in this universe fights in their
-// prime; a legend booked against the champ is a title fight and the belt
-// CAN move, same as anyone else.
-export function isTitleBout(a: Fighter, b: Fighter): boolean {
-  if (isSuperfight(a, b)) return true;
-  const beltsA = champDivisions(a);
-  const beltsB = champDivisions(b);
-  if (beltsA.includes(b.division) || beltsB.includes(a.division)) return true;
-  if (a.division === b.division) return !!(a.isChampion || b.isChampion);
-  return false;
+// VACANT-BELT CROWN FIGHT: when a division's belt has no owner, the bout
+// that crowns its next champ is the TOP bout of that weight class sitting
+// in the main-event or co-main slot of the card (main event beats co-main;
+// anything deeper is just a fight). The user decides who fights for it by
+// booking that division into the top of the card — nothing ever moves on
+// its own. Fought bouts are excluded: their title flag froze at the bell.
+export function isVacantCrown(ev: SimEvent, bout: SimEventBout): boolean {
+  if (bout.result) return false;
+  if (bout.section !== "main" || bout.order > 1) return false;
+  const a = getFighter(bout.aId);
+  const b = getFighter(bout.bId);
+  if (!a || !b) return false;
+  const wc = boutWeightClass(a, b);
+  if (!beltVacant(wc)) return false;
+  const top = ev.bouts
+    .filter((x) => {
+      if (x.result || x.section !== "main" || x.order > 1) return false;
+      const xa = getFighter(x.aId);
+      const xb = getFighter(x.bId);
+      return !!xa && !!xb && boutWeightClass(xa, xb) === wc;
+    })
+    .sort((x, y) => x.order - y.order)[0];
+  return !!top && top.id === bout.id;
 }
 
 // rounds a bout should be fought at TODAY — the belt may have moved onto
-// (or off) one of these fighters after the bout was booked, and title
-// bouts are always 5 rounds
-export function effectiveRounds(bout: SimEventBout, a: Fighter, b: Fighter): 3 | 5 {
-  return bout.title || isTitleBout(a, b) ? 5 : bout.rounds;
+// (or off) one of these fighters after the bout was booked, a vacant-belt
+// crown fight is 5 rounds, and title bouts are always 5 rounds
+export function effectiveRounds(bout: SimEventBout, a: Fighter, b: Fighter, ev?: SimEvent): 3 | 5 {
+  if (bout.title || isTitleBout(a, b)) return 5;
+  return ev && isVacantCrown(ev, bout) ? 5 : bout.rounds;
 }
 
 function sectionLabel(bout: SimEventBout, ev: SimEvent): string {
@@ -460,8 +458,8 @@ export interface RecordOutcome {
 }
 
 // THE moment a universe event bout is decided: careers update, belts can
-// change hands (one in a title fight, both in a superfight), and the ledger
-// grows. Lab fights NEVER call this. Doubly guarded: the bout's own result
+// change hands (dethronings, vacant crowns, superfight vacates), and the
+// ledger grows. Lab fights NEVER call this. Doubly guarded: the bout's own result
 // flag AND the ledger's boutId key — a fight can only ever be written once.
 export function recordEventBout(eventId: string, boutId: string, sim: SimResult): RecordOutcome | null {
   const ev = state.events.find((e) => e.id === eventId);
@@ -473,8 +471,9 @@ export function recordEventBout(eventId: string, boutId: string, sim: SimResult)
   if (!a || !b) return null;
 
   // championship status is computed at the bell — belts can already have
-  // moved earlier on this same card
-  const title = bout.title || isTitleBout(a, b);
+  // moved earlier on this same card, and a vacant division's crown fight
+  // is whichever bout of that weight class tops the card
+  const title = bout.title || isTitleBout(a, b) || isVacantCrown(ev, bout);
   const date = prettyDate(ev.dateISO);
   const rec: UniverseBout = {
     boutId: bout.id,
@@ -500,11 +499,15 @@ export function recordEventBout(eventId: string, boutId: string, sim: SimResult)
     detail: sim.detail,
     round: sim.round,
     time: sim.time,
+    at: Date.now(), // replay order — cards can be recorded out of order
   };
-  if (title && sim.winner !== "A" && sim.winner !== "B") bout.title = undefined;
+  // freeze the title flag exactly as decided at the bell so the reload
+  // replay reproduces it (draw/NC: not a title fight anymore)
+  if (title) bout.title = sim.winner === "A" || sim.winner === "B" ? true : undefined;
 
-  // belts can change hands right here — one, or every belt in a superfight
-  const belts = transferBelts(a, b, sim.winner, rec.wc);
+  // belts can change hands right here — dethronings, vacant crowns, and
+  // superfights that vacate the winner's old belt
+  const belts = transferBelts(a, b, sim.winner, rec.wc, title);
 
   if (ev.bouts.every((x) => x.result)) ev.completed = true;
   save();
@@ -559,9 +562,9 @@ function pointsFromLedger(): Map<string, { pts: number; finishes: number }> {
 
 export function divisionStandings(div: DivisionId): Standing[] {
   const pts = pointsFromLedger();
-  // the division's champ can live anywhere on the roster — a DOUBLE CHAMP
-  // (superfight winner) holds this belt even if he fights out of another
-  // division, so search the full roster, not just this division's list
+  // the division's champ can live anywhere on the roster — healed legacy
+  // saves could momentarily hold a belt outside his own division, so
+  // search the full roster, not just this division's list
   const champ = ROSTER.find((f) => champDivisions(f).includes(div));
   const others = getDivision(div)
     .filter((f) => !champDivisions(f).includes(div))
@@ -681,7 +684,17 @@ export function rehydrateUniverse(): void {
     // rebuilding here heals any duplicated ledger on load — records,
     // histories, rankings and belt lineage all come out exact.
     for (const ev of ordered) {
-      for (const bout of [...ev.bouts].sort((x, y) => x.order - y.order)) {
+      // replay bouts in the order they were actually decided (a card can
+      // be recorded out of order — co-main before main event); legacy recs
+      // without a timestamp fall back to card order
+      const fought = ev.bouts
+        .filter((x) => x.result)
+        .sort(
+          (x, y) =>
+            (x.result?.at ?? Number.MAX_SAFE_INTEGER) - (y.result?.at ?? Number.MAX_SAFE_INTEGER) ||
+            x.order - y.order
+        );
+      for (const bout of fought) {
         if (!bout.result) continue;
         const a = getFighter(bout.aId);
         const b = getFighter(bout.bId);
@@ -702,7 +715,7 @@ export function rehydrateUniverse(): void {
           title: !!bout.title,
         };
         applyBout(a, b, rec);
-        transferBelts(a, b, rec.winner, rec.wc);
+        transferBelts(a, b, rec.winner, rec.wc, rec.title);
         state.ledger.push(rec);
       }
       if (!ev.completed && ev.bouts.length > 0 && ev.bouts.every((x) => x.result)) {

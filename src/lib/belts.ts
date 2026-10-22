@@ -2,15 +2,23 @@
 
 import { useEffect, useState } from "react";
 import { Fighter, DivisionId } from "./types";
-import { DIVISION_MAP } from "./data";
+import { DIVISION_MAP, ROSTER } from "./data";
 
-// ============ DYNAMIC CHAMPIONSHIPS ============
-// Champions can LOSE their belts, and champions can COLLIDE. A same-division
-// bout with a reigning champ is a classic title fight; a champ vs champ
-// cross-division bout is a SUPERFIGHT with both belts on the line — the
-// winner walks away a DOUBLE CHAMP. Belt ownership is tracked per division
-// (champOf), so one man can hold two belts at once and drops only the belt
-// he loses.
+// ============ DYNAMIC CHAMPIONSHIPS — ONE BELT PER FIGHTER ============
+// Rules of this universe:
+//   • a reigning champ ALWAYS puts his belt on the line — his bouts are
+//     contested at his belt's weight class, so a beaten champ always
+//     drops the belt to the man who beat him
+//   • a champ can chase another division's belt (the user books that
+//     fight): champ vs champ = SUPERFIGHT, both belts on the line — the
+//     winner takes the loser's belt, and his OWN old belt is immediately
+//     VACATED. No double champs, no division held hostage: one man, one
+//     belt, always. Men's and women's belts work exactly the same way.
+//   • a VACANT belt is won back in the main event / co-main: the top bout
+//     of that weight class on the main card becomes the title fight
+//     (main event beats co-main; anything deeper on the card is just a
+//     fight). Division changes only ever happen through bouts the USER
+//     books — never automatically.
 
 const listeners = new Set<() => void>();
 let version = 0;
@@ -39,10 +47,22 @@ export function useBeltsVersion(): void {
 }
 
 export interface BeltChange {
-  newChamp: Fighter;
-  oldChamp: Fighter;
+  newChamp: Fighter | null; // null → the belt was VACATED
+  oldChamp: Fighter | null; // null → the belt was vacant (crown claimed)
   div: DivisionId;
   divName: string;
+}
+
+// plain-English line for toasts — covers dethronings, vacant crowns and
+// automatic vacates
+export function beltChangeText(c: BeltChange): string {
+  if (!c.newChamp) {
+    return `VACATED — ${c.oldChamp ? c.oldChamp.name : "the champ"} gives up the ${c.divName} belt`;
+  }
+  if (!c.oldChamp) {
+    return `NEW CHAMPION! ${c.newChamp.name} claims the vacant ${c.divName} belt`;
+  }
+  return `NEW CHAMPION! ${c.newChamp.name} dethrones ${c.oldChamp.name} — the ${c.divName} belt changes hands`;
 }
 
 // every division whose belt this fighter currently holds
@@ -51,15 +71,46 @@ export function champDivisions(f: Fighter): DivisionId[] {
   return f.isChampion ? [f.division] : [];
 }
 
-// champion vs champion from two different divisions — a superfight with
-// BOTH titles on the line (same gender only; men's and women's belts never
-// cross). Winner becomes a double champ.
+// true when nobody on the roster holds this division's belt
+export function beltVacant(div: DivisionId): boolean {
+  return !ROSTER.some((f) => champDivisions(f).includes(div));
+}
+
+// champion vs champion — a superfight with BOTH belts on the line (same
+// gender only; men's and women's belts never cross). The winner walks out
+// with the loser's belt; his own old belt gets vacated.
 export function isSuperfight(a: Fighter, b: Fighter): boolean {
   const beltsA = champDivisions(a);
   const beltsB = champDivisions(b);
   if (beltsA.length === 0 || beltsB.length === 0) return false;
-  if (a.division === b.division) return false; // same division = classic title fight
   return DIVISION_MAP[a.division].division === DIVISION_MAP[b.division].division;
+}
+
+// where a bout is contested. A reigning champ fights at HIS belt's weight —
+// the challenger comes to the champ, so the belt is always on the line and
+// a beaten champ always drops it (never a weight below his belt). Champ vs
+// champ = superfight at the heavier weight. Neither holds a belt → heavier
+// weight class (plain cross-division booking / catchweight).
+export function boutWeightClass(a: Fighter, b: Fighter): DivisionId {
+  if (a.division === b.division) return a.division;
+  const sameGender =
+    DIVISION_MAP[a.division].division === DIVISION_MAP[b.division].division;
+  const beltsA = sameGender ? champDivisions(a) : [];
+  const beltsB = sameGender ? champDivisions(b) : [];
+  if (beltsA.length > 0 && beltsB.length === 0) return beltsA[0];
+  if (beltsB.length > 0 && beltsA.length === 0) return beltsB[0];
+  return (DIVISION_MAP[a.division]?.limit ?? 0) >= (DIVISION_MAP[b.division]?.limit ?? 0)
+    ? a.division
+    : b.division;
+}
+
+// is the reigning champ of the bout's weight class one of these two? (For
+// a VACANT belt the title fight is decided by card position instead —
+// see isVacantCrown in universe.ts: main event / co-main of the vacated
+// division.)
+export function isTitleBout(a: Fighter, b: Fighter): boolean {
+  const wc = boutWeightClass(a, b);
+  return champDivisions(a).includes(wc) || champDivisions(b).includes(wc);
 }
 
 function setChamp(div: DivisionId, f: Fighter): void {
@@ -70,10 +121,7 @@ function setChamp(div: DivisionId, f: Fighter): void {
   f.rank = null;
   // Winning a belt in ANOTHER division moves the fighter's fighting weight
   // to that division (men's ↔ men's, women's ↔ women's). The move only ever
-  // happens through a user-booked cross-division title win — never
-  // automatically — so no division ever gets held up: the user can always
-  // book the multi-division champ to defend any belt he carries, and the
-  // belt count keeps growing (double … 8-division champ).
+  // happens through a user-booked bout — never automatically.
   if (
     div !== f.division &&
     DIVISION_MAP[div].division === DIVISION_MAP[f.division].division
@@ -82,6 +130,8 @@ function setChamp(div: DivisionId, f: Fighter): void {
   }
 }
 
+// drop one belt from a fighter (beaten, or auto-vacated). When the last
+// belt goes he drops back into the ranked contenders.
 function clearChamp(div: DivisionId, f: Fighter): void {
   const belts = champDivisions(f).filter((d) => d !== div);
   f.champOf = belts;
@@ -91,7 +141,8 @@ function clearChamp(div: DivisionId, f: Fighter): void {
   }
 }
 
-// how the UI crowns a multi-division champion
+// how the UI crowns a champion (healed legacy saves could briefly carry
+// 2+ belts; the engine never creates them anymore)
 export function beltCountLabel(n: number): string {
   if (n <= 1) return "CHAMPION";
   if (n === 2) return "DOUBLE CHAMP";
@@ -102,45 +153,69 @@ export function beltCountLabel(n: number): string {
 }
 
 // THE belt logic, run the moment a universe bout is decided:
-//   • classic title fight (same division, champ beaten) — belt moves
-//   • cross-division belt defense (a fighter holding a belt in the bout's
-//     weight class loses it there) — that belt moves
-//   • superfight (champ vs champ, cross-division) — EVERY belt the loser
-//     holds moves to the winner: double champ → triple → … 8-division champ
-// `wc` is the weight class the bout was contested at. Idempotent: replaying
-// the same result (rehydrate) changes nothing.
+//   • non-title bout → nothing moves, ever
+//   • beaten champ → his belt goes to the winner
+//   • vacant belt (main/co-main crown fight) → the winner takes the throne
+//   • superfight (champ vs champ) → the loser's belt goes to the winner,
+//     and the belt the winner came in with is VACATED — no double champs
+// Whatever happens, the winner walks out holding exactly ONE belt: the one
+// he just won. `isTitle` comes from the bout's recorded title flag.
+// Idempotent: replaying the same result (rehydrate) changes nothing.
 export function transferBelts(
   a: Fighter,
   b: Fighter,
   winner: "A" | "B" | "DRAW" | "NC",
-  wc?: DivisionId
+  wc?: DivisionId,
+  isTitle = false,
 ): BeltChange[] {
   if (winner !== "A" && winner !== "B") return [];
+  if (!wc || !isTitle) return []; // belts never move outside a title fight
   const win = winner === "A" ? a : b;
   const lose = winner === "A" ? b : a;
-  const winBelts = new Set(champDivisions(win));
+  const winBelts = champDivisions(win); // captured BEFORE any mutation
   const loseBelts = champDivisions(lose);
   const changes: BeltChange[] = [];
 
-  if (isSuperfight(a, b)) {
-    // champion vs champion — all of the loser's titles on the line
+  if (winBelts.length > 0 && loseBelts.length > 0) {
+    // SUPERFIGHT — the loser's belt(s) go to the winner…
     for (const div of loseBelts) {
-      if (winBelts.has(div)) continue;
       clearChamp(div, lose);
       setChamp(div, win);
       changes.push({ newChamp: win, oldChamp: lose, div, divName: DIVISION_MAP[div].name });
+    }
+    // …and the belt(s) the winner came in with are vacated — no double champs
+    for (const div of winBelts) {
+      if (loseBelts.includes(div)) continue;
+      clearChamp(div, win);
+      changes.push({ newChamp: null, oldChamp: win, div, divName: DIVISION_MAP[div].name });
+    }
+    // one belt per fighter on the way out (healed legacy multi-belt saves)
+    const keep = loseBelts.includes(wc) ? wc : loseBelts[0];
+    for (const div of champDivisions(win)) {
+      if (div === keep) continue;
+      clearChamp(div, win);
+      changes.push({ newChamp: null, oldChamp: win, div, divName: DIVISION_MAP[div].name });
     }
   } else {
-    // classic title fight / cross-division belt defense — the beaten champ
-    // drops the belt that was contested (the bout's weight class, falling
-    // back to their shared division for same-division bouts)
-    const div = wc ?? (a.division === b.division ? a.division : undefined);
-    if (div && loseBelts.includes(div) && !winBelts.has(div)) {
-      clearChamp(div, lose);
-      setChamp(div, win);
-      changes.push({ newChamp: win, oldChamp: lose, div, divName: DIVISION_MAP[div].name });
+    if (loseBelts.includes(wc)) {
+      // classic title fight — the beaten champ drops the belt to the winner
+      clearChamp(wc, lose);
+      setChamp(wc, win);
+      changes.push({ newChamp: win, oldChamp: lose, div: wc, divName: DIVISION_MAP[wc].name });
+    } else if (beltVacant(wc)) {
+      // vacant crown — the main/co-main winner takes the empty throne
+      setChamp(wc, win);
+      changes.push({ newChamp: win, oldChamp: null, div: wc, divName: DIVISION_MAP[wc].name });
+    }
+    // if the winner came in carrying other belts they're vacated — ONE
+    // belt per fighter, the one he just won
+    for (const div of winBelts) {
+      if (div === wc) continue;
+      clearChamp(div, win);
+      changes.push({ newChamp: null, oldChamp: win, div, divName: DIVISION_MAP[div].name });
     }
   }
+
   if (changes.length > 0) bump();
   return changes;
 }

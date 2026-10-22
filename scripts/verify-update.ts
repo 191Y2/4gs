@@ -1,11 +1,11 @@
-import { ROSTER, GHOSTS, FIGHTER_MAP, LEGENDS, CHAMPIONS } from "../src/lib/data";
+import { ROSTER, GHOSTS, FIGHTER_MAP, LEGENDS, champions } from "../src/lib/data";
 
 const byDiv: Record<string, number> = {};
 for (const f of ROSTER) byDiv[f.division] = (byDiv[f.division] ?? 0) + 1;
 
 console.log("TOTAL:", ROSTER.length);
 console.log("BY DIVISION:", byDiv);
-console.log("LEGENDS(retired):", LEGENDS.length, "CHAMPIONS:", CHAMPIONS.length, "GHOSTS:", GHOSTS.length);
+console.log("LEGENDS(retired):", LEGENDS.length, "CHAMPIONS:", champions().length, "GHOSTS:", GHOSTS.length);
 
 // Jon Jones checks
 const jones = FIGHTER_MAP["jon-jones"];

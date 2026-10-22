@@ -6,6 +6,7 @@ import { toast } from "sonner";
 import { getFighter } from "@/lib/data";
 import { computeOdds, decimalFromAmerican, fmtOdds, simulateFight, SimResult, resultSummary, probFromAmerican, SimRound } from "@/lib/engine";
 import { recordEventBout } from "@/lib/universe";
+import { beltChangeText } from "@/lib/belts";
 import { useBetStore, BAILOUT_AMOUNT } from "@/lib/store";
 import { BoutSpec, useApp } from "./AppContext";
 import { FighterAvatar, Flag, OddsChip, RecordText } from "./shared";
@@ -285,10 +286,7 @@ export function FightSimDialog() {
         recorded = true;
         toast.success(`${outcome.note}`, { duration: 5000 });
         for (const belt of outcome.belts) {
-          toast.success(
-            `NEW CHAMPION! ${belt.newChamp.name} dethrones ${belt.oldChamp.name} — the ${belt.divName} belt changes hands!`,
-            { duration: 7000 }
-          );
+          toast.success(beltChangeText(belt), { duration: 7000 });
         }
       }
     }

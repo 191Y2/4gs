@@ -53,8 +53,9 @@ export interface Fighter {
   status?: "active" | "retired"; // everyone fights in their prime — always "active" after load
   legend?: boolean;    // Hall-of-Fame icon badge
   // divisions this fighter currently holds the belt in. Undefined for a
-  // single-division champ = just his own division (the seeded case). A
-  // SUPERFIGHT winner can hold two at once — champOf tracks every belt.
+  // single-division champ = just his own division (the seeded case). ONE
+  // belt per fighter — winning a belt in a new division vacates the old
+  // one (legacy multi-belt saves are healed on replay).
   champOf?: DivisionId[];
   // 0-100 attributes drive the simulator
   str: number;   // striking technique & output
@@ -159,6 +160,7 @@ export interface SimEventBout {
     detail?: string;
     round: number;
     time: string;
+    at?: number; // wall-clock when the bout was decided — replay order
   } | null;
 }
 

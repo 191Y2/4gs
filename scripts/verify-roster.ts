@@ -1,4 +1,4 @@
-import { ROSTER, LEGENDS, HOF_ICONS, CHAMPIONS, p4pList, DIVISION_MAP } from "../src/lib/data";
+import { ROSTER, LEGENDS, HOF_ICONS, champions, p4pList, DIVISION_MAP } from "../src/lib/data";
 
 const byDiv: Record<string, number> = {};
 const retiredByDiv: Record<string, number> = {};
@@ -7,7 +7,7 @@ for (const f of ROSTER) {
   if (f.status === "retired") retiredByDiv[f.division] = (retiredByDiv[f.division] ?? 0) + 1;
 }
 console.log("TOTAL FIGHTERS:", ROSTER.length);
-console.log("RETIRED/LEGENDS:", LEGENDS.length, "| HOF icons:", HOF_ICONS.length, "| Champions:", CHAMPIONS.length);
+console.log("RETIRED/LEGENDS:", LEGENDS.length, "| HOF icons:", HOF_ICONS.length, "| Champions:", champions().length);
 for (const [d, n] of Object.entries(byDiv)) {
   console.log(`${DIVISION_MAP[d as keyof typeof DIVISION_MAP].name}: ${n} (${retiredByDiv[d] ?? 0} retired)`);
 }

@@ -234,3 +234,21 @@ Work Log:
 
 Stage Summary:
 - Champs now fight where their newest belt lives; belts only change hands in bouts the user books (classic defense, cross-division defense, or superfight taking ALL the loser's belts); multi-division champs stack to 8 with proper labels; women's champs can unify women's belts the same way. Belt history replays exactly on reload.
+
+---
+Task ID: 15
+Agent: main (Z.ai)
+Task: Reverse double-champ spec per user: ONE belt per fighter (winning a new-division belt vacates the old one), vacant belts crowned via user's main/co-main booking, belt transfers on any champ loss, universes 100% local per device, clean static zip for GitHub Pages.
+
+Work Log:
+- belts.ts REWRITTEN to the new spec. boutWeightClass() moved into belts.ts — a reigning champ always fights at HIS belt's division (the challenger comes to him), so a beaten champ ALWAYS drops the belt (kills the "Islam beaten by Justin but keeps the belt" class of bug: champs can no longer wander into non-title cross-division weights). transferBelts(a,b,winner,wc,isTitle): non-title bouts never move belts; classic dethrone moves the contested belt; VACANT crown awards the empty belt; SUPERFIGHT (champ vs champ) gives the loser's belt to the winner and VACATES the winner's incoming belt — ONE belt per fighter enforced on every path (legacy multi-belt saves heal on replay). setChamp still moves division to the new belt's division; beltVacant() + beltChangeText() added; BeltChange.newChamp/oldChamp now nullable.
+- universe.ts: isTitleBout re-exported from belts.ts; NEW isVacantCrown(ev,bout) — the TOP bout of a vacated division sitting in the main-event/co-main slot is the vacant-title fight (main event beats co-main; prelims never count); effectiveRounds gained optional ev param; recordEventBout decides title at the bell incl. vacant crown, FREEZES bout.title for exact replay, stamps result.at (replay order = actual recording order, out-of-order cards included); rehydrate passes rec.title into transferBelts and replays by timestamp.
+- EventsTab/BettingDialogs UI: superfight copy "TITLES ON THE LINE · WINNER KEEPS ONE"; vacant-belt hint in the bout-builder preview; VACANT TITLE row badge; every belt toast now via beltChangeText (dethrone / vacant crown / auto-vacate wording).
+- Purged every full-stack leftover that made the repo look non-static: deleted prisma/, db/, .env (dead DATABASE_URL), Caddyfile, examples/, mini-services/, old-app/; removed prisma deps + db:* scripts from package.json; fixed two stale script imports. ZERO prisma/env references remain in the app.
+- Verified universes are per-device: persistence is localStorage only (octagon-hq-universe-v1) — no fetch/axios/XHR in src; the only external requests are Google Fonts + flagcdn flag images (cosmetic CDN assets, no data).
+- Engine harness scripts/test-belts.ts: 29/29 PASS (superfight vacate, classic dethrone, vacant crown main>co-main, prelims excluded, women's belts identical, idempotent replay, no automatic division changes, non-title never moves belts).
+- Rebuilt static out/ (all routes ○) and zipped contents incl. .nojekyll → download/octagon-hq-static.zip (640K).
+- E2E on the static build (:3000): fresh universe → FN1 superfight Gaethje(LW champ) vs Makhachev(WW champ) → "NEW CHAMPION! Gaethje dethrones Makhachev — Welterweight" + "VACATED — Gaethje gives up the Lightweight belt"; reload replayed exactly (champs strip: Gaethje WW·170, no LW champ); UFC 334 LW main event Poirier vs Oliveira auto-badged VACANT TITLE → "NEW CHAMPION! Poirier claims the vacant Lightweight belt"; zero page errors; screenshot download/static-belt-fix.png.
+
+Stage Summary:
+- No double champs ever: winning a belt in a new division auto-vacates the old one (men's and women's). Champs always defend at their belt's weight; a beaten champ always drops the belt. Vacant belts are user-decided: the top main/co-main bout of that weight class becomes the title fight (main event beats co-main). Division changes happen only through booked bouts. Deliverable: download/octagon-hq-static.zip — GitHub-Pages-ready ROOT deploy (repo must be named <username>.github.io, or rebuild with NEXT_PUBLIC_BASE_PATH=/reponame).
