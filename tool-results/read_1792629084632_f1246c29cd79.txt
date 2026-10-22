@@ -1,0 +1,207 @@
+     1→# Worklog
+     2→
+     3→---
+     4→Task ID: 1
+     5→Agent: main
+     6→Task: Rebuild UFC Card Creator into fully redesigned app with Oct 2026 stats, detailed fight records, overall ratings, and math-based betting
+     7→
+     8→Work Log:
+     9→- Extracted uploaded workspace tar to /home/z/my-project/old-app
+    10→- Analyzed old app: UFC Card Creator (Next.js 16 + shadcn + zustand)
+    11→- Old app bugs identified: outdated 2024 roster data, no fight-by-fight records (only W-L-D), no overall ratings, no betting, flag emoji break on Windows, zustand persist hydration risk, dead-end roster browser (select shows toast only)
+    12→- Web-researched real Oct 2026 UFC data: all 11 champions (Gane HW, Ulberg LHW, Strickland MW, Makhachev WW, Gaethje LW, Volkanovski FW, Yan BW, Van FLW, Harrison W-BW, N.Silva W-FLW, Dern W-SW), full Oct 6 2026 rankings, UFC 332 results, UFC FN Edmonton card (Oct 18: Buckley vs Malott w/ real odds), UFC 333 (Oct 24: Volkanovski vs Evloev, Abu Dhabi)
+    13→- Initialized fullstack env; dev server running on port 3000
+    14→
+    15→Stage Summary:
+    16→- Plan: full rebuild in /home/z/my-project (fresh scaffold) as single-page app "OCTAGON HQ" with tabs: Home / Divisions / Fighters / Fight Lab / Events
+    17→- Engine: curated Elo + probability + American odds w/ 5% vig + round-by-round Monte-Carlo-style simulator
+    18→- Betting: $100 start bankroll, zustand persist w/ skipHydration, bet history drawer
+    19→
+    20→---
+    21→Task ID: 2
+    22→Agent: main
+    23→Task: Build & verify OCTAGON HQ (full redesign)
+    24→
+    25→Work Log:
+    26→- Built data layer: 190 fighters across 11 divisions with Oct 2026 champions/rankings (verified via UFC.com/Wikipedia/ESPN research), fight-by-fight bout histories, 3 upcoming events with real Edmonton sportsbook lines (Buckley +114 / Malott -135 etc.)
+    27→- Built engine: Elo probability → de-vigged market probability, American/decimal odds with 5% vig, round-by-round simulator (winner sampled from exact probability distribution), OVR display rating
+    28→- Built betting store: $100 start, hydration-safe zustand persist (skipHydration), settlement with exact payout math
+    29→- Built UI: 5 tabs (Home/Divisions/Fighters/Fight Lab/Events), fighter profile dialog with full record detail (W/L chips, method, round, time, title/bonus badges, clickable opponents), bet dialog, sim dialog with animated round-by-round + judge scorecards, bet history sheet with ROI stats, results ticker, countdowns, mobile bottom nav, flagcdn flag images (fixes Windows flag-emoji bug)
+    30→- Fixed during verification: p4pList W-prefix bug (welterweight classified as women), #null rank display, OVR formula saturation (everyone 99), real odds not passed to spec (oddsA/oddsB vs houseA/houseB mismatch), fighter picker search persistence, DialogTitle a11y errors, rounds variable shadowing, open prop collision
+    31→- Verified end-to-end with agent-browser: profile renders full bout history (Makhachev's loss shows "KO/TKO R2 2:38 Counter Right"), Fight Lab bet placed ($25 Gane +220) → sim → lost → settlement exact, event bet ($30 Blanchfield -340) → won $8.82, full card sim, bankroll arithmetic exact ($75→$83.82), reset-to-$100 flow, mobile no overflow, zero console errors, lint clean
+    32→
+    33→Stage Summary:
+    34→- App running on port 3000, HTTP 200, all features browser-verified
+    35→- Deliverable: fully redesigned OCTAGON HQ replacing buggy UFC Card Creator
+    36→
+    37→---
+    38→Task ID: 3
+    39→Agent: main
+    40→Task: Expand roster from 190 to 500+ fighters including legends (user request: "go up to 500 at least or as much as u can with legends")
+    41→
+    42→Work Log:
+    43→- Fixed latent bugs found via tsc: title union widened to accept "T"/"I"/"V" shorthands; engine re-exports SimResult; BettingDialogs FightSimDialog missing setBetSpec destructure (runtime crash on BET buttons); BetHistory open.length -> openBets.length; BoutSpec gained title?: string (EventsTab type error); SimResult.scorecards typed as [number,number][] to match actual data
+    44→- Fixed data glitches: "Léo? Santos"/"Alejandro? Escamilla"/"Brandon? Ivanov" placeholder names cleaned; Mario Pinto impossible double-fight on Aug 2 2025 + 10-1 record vs 2 log losses corrected to 9-2
+    45→- Added Fighter.status ("active"/"retired") + Fighter.legend (HOF flag) to types
+    46→- Built depth.ts generator: deterministic seeded RNG (mulberry32 + FNV name hash) synthesizes 4-6 bout log entries per depth fighter from real W-L records, win-method splits, division opponent pools & style archetypes — hydration-safe (identical server/client)
+    47→- Hand-crafted 71 HOF icon careers with real fight histories: Jones (11 bouts incl. Gane/Stipe), GSP, Khabib, A.Silva, DJ, Aldo, Stipe, Ngannou, DC, Lesnar, Cain, JDS, Werdum, Overeem, Arlovski, Shogun, Machida, Evans, Ortiz, Liddell, Rampage, W.Silva, Hendo, Sonnen, Gustafsson, Teixeira, Griffin, Weidman, Rockhold, Bisping, Franklin, Belfort, Jacare, Romero, Mousasi, Tanner, Hughes, Lawler, Hendricks, Woodley, Askren, N.Diaz, Condit, MacDonald, Maia, Masvidal, Serra, McGregor, Poirier, Ferguson, Cerrone, Pettis, Alvarez, RDA, B.Henderson, Edgar, KZ, Mendes, Cruz, Dillashaw, Garbrandt, Faber, Barao, Cejudo, Benavidez, Nunes, Rousey, Tate, Holm, Cyborg, GDR, Joanna, Esparza
+    48→- Added ~89 retired vets (Formiga, Cub, Zabit, Stephens, OSP, A.Smith, Wonderboy, Sanchez, Kampmann, D.Kim, Perry, Guida, Lauzon, Felder, Iaquinta, Lamas, Elkins, R.Hall, Bermudez, Barzola, Lineker, Dodson, Assunção, Rivera, Almeida, Wineland, Yahya, Schnell, Nam, Modafferi, Chookagian, Eye, J.Maia, V.Araujo, A.Lee, Honchak, Montaño, Gadelha, Kowalkiewicz, Torres, Waterson, Herrig, N.Nunes, Zingano, McMann, Carmouche, etc.)
+    49→- Added ~246 active depth fighters (Chandler, Covington, Burns, Luque, Magny, Cannonier, Vettori, Hermansson, Shara, Dolidze-via-pool, Tuivasa, Almeida, Jamahal Hill, Thiago Santos, Spann, Walker, Aldana, Vieira, Mayra, Ribas, Marina Rodriguez, Angela Hill, Nicolau, Mokaev, Rob Font, Kyler Phillips, Patchy Mix, Dan Ige, Emmett, Chikadze, Barboza, Jim Miller, Dober, Turner, Rebecki, Klein, Bahamondes, Ziam, etc.)
+    50→- index.ts: assembled RAW_ROSTER + id-based dedupe (first wins); p4pList excludes retired; searchFighters gained "legends" filter; exported LEGENDS + HOF_ICONS
+    51→- UI: RosterTab LEGENDS filter chip + HOF gold badge + RETIRED tag on tiles; FighterProfile HALL OF FAME badge, RETIRED chip, prime-era Elo note, retired-aware footnote; HomeTab FIGHTERS ON FILE stat (506/160) + HALL OF FAME showcase strip (top 8 icons by elo); DivisionsTab per-division retired-legend counts
+    52→- Verified end-to-end with agent-browser: 506 total, 160 legends filter results, Khabib profile (4 title-fight finishes), fantasy booking Khabib vs GSP → $25 bet @ +100 → sim → KO/TKO R4 → settled $125 (exact), no console errors, no mobile overflow, tsc clean, eslint clean, production build passes
+    53→
+    54→Stage Summary:
+    55→- Roster: 190 → 506 fighters (71 HOF icons, 160 retired total, 346 active) across 11 divisions
+    56→- New files: depth.ts (generator+lg/ret helpers), roster-legends.ts, roster-legends-2.ts, roster-legends-w.ts, roster-depth-1/2/3/w.ts
+    57→- Fantasy matchmaking: retired legends bookable in Fight Lab with prime-era Elo; betting math unchanged and exact
+    58→
+    59→---
+    60→Task ID: 4
+    61→Agent: main
+    62→Task: Betting fixes + bankruptcy bailout + way more fighters + complete records + weight classes per fight + auto-add missing opponents
+    63→
+    64→Work Log:
+    65→- types.ts: FightLogEntry gained wc?: DivisionId (weight class each fight was contested at)
+    66→- depth.ts rewritten: genLog now synthesizes FULL careers (all W-L fights, era-aware event labels back to 1994, wc on every entry, title arcs for elo>=1650/1750); new auto() builder; AUTO_POOL tuples (name,cc); POOLS merged w/ AUTO_POOL; fillCareer() backfills hand-written partial logs to full records (prepends deterministic pre-history; skips jon-jones by design)
+    67→- roster-jones.ts: Jon Jones COMPLETE 24-fight UFC record (Gusmaao UFC 87 -> Miocic UFC 309) w/ per-fight wc (LHW->HW), title/interim/vacant flags, NC for UFC 214; + 8 missing opponents added (Gusmao, Bonnar, O'Brien, Hamill, Vera, Matyushenko, Bader, Reyes)
+    68→- roster-fill.ts: +117 fighters — every previously-unresolved opponent name incl. legends (BJ Penn, Nate Diaz, Randy Couture, Fedor, Royce & Frank Shamrock, Frank Mir, Rumble, Mark Hunt, Bigfoot, Tim Sylvia, Ken Shamrock, Minotouro, Blachowicz, Rich Franklin, Jake Shields, Marlon Moraes, Demian Maia, MVP, Oleinik, Struve, Takanori Gomi, Kenny Florian...)
+    69→- roster-auto.ts: AUTO_POOL -> ~300 deep-roster entries w/ full generated careers
+    70→- index.ts: FILL+AUTO wired (dedupe first-wins), fillCareer loop for all, ALIASES (weili-zhang->zhang-weili, king-green->bobby-green, korean-zombie->chan-sung-jung, xiaonan-yan->yan-xiaonan), ensureFighter ghost auto-add + eager closure sweep (0 unresolved names), champions() became a live function
+    71→- belts.ts (new): maybeTransferBelt + useBeltsVersion — active same-division champ who loses a sim transfers the belt instantly; hook mounted in Home/Divisions/Roster/FightLab tabs
+    72→- store.ts: BANKRUPTCY BAILOUT — settleBet auto-grants $500 emergency sponsorship w/ toast when bankroll < 1; claimBailout + checkBailout on rehydrate; bailouts counter
+    73→- BettingDialogs: quick-bets 5/10/25/50/100, broke-state COLLECT $500 UI, belt-transfer toast on sim settlement; EventsTab card sims report TITLE CHANGE rows; BetHistory shows EMERGENCY SPONSORSHIPS total; AppContext rehydrate->checkBailout
+    74→- FighterProfile LogRow: weight-class chip per bout (division-colored), title badges read "LHW TITLE / INTERIM HW TITLE / VACANT LHW TITLE", opponents resolved via ensureFighter (every name clickable), "3 RDS"/"5 RDS" for decisions
+    75→
+    76→Stage Summary:
+    77→- Roster: 506 -> 670 fighters, ZERO unresolved names in any record; median log length 23 bouts (full careers for everyone incl. previously-partial hand-written entries)
+    78→- Verified with agent-browser: Jones profile = 24 fights w/ title+wc badges; O'Malley 4->22 fights; broke-wallet reload -> $500 bailout toast -> bankroll $500; $50 @ -200 paid exactly $25; Gane(champ) vs Aspinall sim -> Aspinall KO'd belt from Gane w/ "NEW CHAMPION" toast, Divisions tab re-rendered; mobile 390px no overflow; tsc clean, eslint clean, production build passes
+    79→
+    80→---
+    81→Task ID: 5
+    82→Agent: main
+    83→Task: Fight Lab sim results get written onto both fighters' career records (user: "when I put this guy against that guy and that guy loses that win gets added onto his career — small update")
+    84→
+    85→Work Log:
+    86→- careers.ts (new): career ledger — recordSimResult() appends a full FightLogEntry to BOTH fighters (opponent name, event label, date, W/L/D/NC, method, detail, round, time, per-fight weight class, title flag) + increments w/l/d/nc and KO/SUB/DEC splits; same-division champ bout auto-flagged as title fight; cross-division superfights tagged at the heavier division's weight; retired legends eligible; persists to localStorage octagon-hq-careers-v1; rehydrateCareers() replays ledger onto fresh roster + replays belt transfers in order; useCareersVersion() hook forces re-render; resetCareers() wipe utility
+    87→- types.ts: FightLogEntry.sim?: boolean marker
+    88→- engine.ts: currentStreak fixed — was counting wins from career START (index 0 of chronological log); now counts trailing consecutive wins so WIN STREAK reacts to fresh sim results
+    89→- BettingDialogs FightSimDialog: career write happens at the official-result moment alongside bet settlement + belt transfer; per-run settle guard (runId) fixes RUN IT BACK never re-settling belts/bets on repeated sims; toast confirms "written to both career records"
+    90→- EventsTab runFastSim: full-card event sims record every bout onto careers too (title flag from the card's bout.title)
+    91→- AppContext: rehydrateCareers() on mount before wallet rehydrate; page.tsx Shell subscribes via useCareersVersion so roster tiles/profiles/tale-of-tape update live; FighterProfile LogRow shows red FIGHT LAB badge on sim-added bouts
+    92→- Verified with agent-browser: O'Malley vs champ Petr Yan sim → O'Malley 19-3-0 → 20-3-0 W KO/TKO R4 3:45 "BW TITLE | FIGHT LAB" entry, Yan 20-6-0 L + streak 0 + dethroned (belt moved); reload → careers AND belt replayed (O'Malley still BW champ); Khabib (retired) vs Makhachev (WW champ, cross-division) ×2 sims → Khabib 29-0-0 → 29-2-0 (first career losses, entries tagged WW, no title flag), Makhachev 31-1-0, OVR drift 93→90; RUN IT BACK adds one entry per run; ledger persisted all 3 bouts; tsc clean, eslint clean, production build passes; dev server restarted on :3000
+    93→
+    94→Stage Summary:
+    95→- Simulated fights are now permanent career results: W/L on both records, full bout-history entries with weight class + title status + FIGHT LAB badge, live streak/OVR/roster updates, belt consequences, and localStorage persistence across reloads
+    96→
+    97→---
+    98→Task ID: 6
+    99→Agent: main
+   100→Task: Universe rebuild — wipe fight-lab records, Fight Lab becomes pure exhibition, new event-creator system (records/rankings/titles from events only), OCTAGONHQ 0-0 records, detailed play-by-play simulator, instant loading
+   101→
+   102→Work Log:
+   103→- WIPED all fight-lab career records: careers.ts deleted; new universe.ts uses fresh storage key octagon-hq-universe-v1 and actively removes the legacy octagon-hq-careers-v1 key on boot (verified: legacy key removed on load)
+   104→- Fight Lab = pure exhibition now: sims settle wallet bets only — no records, no belts, no rankings; dialog header reads "EXHIBITION · FIGHT LAB" and result card says "RECORDS UNTOUCHED — BOOK IT ON AN EVENT TO MAKE IT COUNT" (verified: Khabib vs Oliveira lab sim left ledger at 2 bouts, records unchanged)
+   105→- NEW EVENT SYSTEM (Events tab → UNIVERSE EVENT CENTER): create one event per fight week (Saturdays, first week Oct 17, 2026 even though today is Oct 18); universe time ADVANCES when a card completes so the next Saturday unlocks immediately (verified: after UFC 334 completed, current week rolled to Oct 24); numbered events (UFC 334, 335...) capped at one per calendar month, other weeks are Fight Nights (verified: Oct 24 offered FIGHT NIGHT only with "already ran this month" note); Fight Nights auto-named from main event (UFC Fight Night: Topuria vs Evloev); cards built bout-by-bout into MAIN CARD / PRELIMS / EARLY PRELIMS sections with per-bout reorder arrows (top of main card = MAIN EVENT, second = CO-MAIN), champ-involved bouts auto-flagged TITLE + 5 rounds; WATCH LIVE (detailed dialog), QUICK SIM, per-bout BET buttons, RUN FULL CARD; event history with expandable results
+   106→- OCTAGONHQ records: Fighter gained simW/simL/simD — everyone starts 0-0; ONLY event fights increment (profile shows UFC RECORD + gold OCTAGONHQ RECORD cells; roster tiles show "0-0 HQ" chip; event bouts enter bout history with OCTAGONHQ badge + "UFC 334 · MAIN EVENT" event label + weight class + title flag)
+   107→- OCTAGONHQ RANKINGS (Divisions tab): points purely from event fights (DEC win +3, finish +4, title win +1, draw +1); champion on top then points order, ties break on wins/finishes/real-world seed (verified: Aspinall CHAMPION 1-0 5pts after KO'ing Gane for the belt; Gane 0-1 at #1; everyone else 0-0 seeded); Home P4P switches to universe points once events exist (fixed simP4P wrapper-object crash); Home ticker switches to universe results after first event
+   108→- DETAILED SIMULATOR: engine rewritten narration into play-by-play BEATS — 5-8 named attack moments per round (27 strikes, 8 clinch, 22 ground, 7 defense techniques, style-weighted by wr/gr/str/pow; power punchers land CLEAN wobble lines), finish rounds build across 2 climactic beats, decision rounds get final-horn beats; dialog reveals beats every 2.6s (~15-20s per round at 1x) with 1x/2x speed toggle + SKIP; outcome math (Elo probability sampling, method, scorecards) unchanged — verified Gane vs Aspinall R1 streamed 5 named beats then R2
+   109→- Belts move only via events: recordEventBout writes ledger + both log entries + sim records + maybeTransferBelt; replay on reload re-applies records AND belt transfers in order (verified: reload keeps Aspinall HW champ)
+   110→- SPEED: roster precomputed — /api/roster-dump route dumps the fully-assembled 670-fighter DB (15,246 log entries, 2.1MB JSON) to roster.prebuilt.json; data/index.ts now imports the JSON (zero runtime career generation/ghost sweeps); app served by standalone production server on :3000 (discovered next start serves STALE builds with output:standalone — killed stale next-server processes, now node .next/standalone/server.js with copied static/public); production load = 198ms DCL / 279ms full (was multi-second dev compile); top names verified present (Pereira, Adesanya, Du Plessis, Chimaev, Imavov, Borralho, Merab, Umar, Tsarukyan, Holloway, Evloev, Pantoja, Moreno, Procházka, Blachowicz etc.)
+   111→- Verified end-to-end in browser: UFC 334 created → title main event Gane vs Aspinall WATCHED LIVE (beats streamed) → Aspinall KO R3 → belt moved + records/rankings updated → prelims bet $25 Song @ odds settled exactly via QUICK SIM → RUN FULL CARD → reload persistence (belt + records + ticker) → next week Oct 24 unlocked → Fight Night Topuria vs Evloev → $25 Topuria @ -120 quick-simmed → +$20.83 exact → event history; mobile 390px no overflow; tsc clean, eslint clean, production build passes
+   112→
+   113→Stage Summary:
+   114→- Delivered: wiped fight-lab records; lab = exhibition; full UFC-universe event simulator (weekly cards, sections, reordering, monthly numbered events + fight nights) driving records/championships/OCTAGONHQ 0-0 rankings; detailed 15-30s/round play-by-play engine with speed + skip; instant production loading (prebuilt roster JSON + standalone server)
+   115→---
+   116→Task ID: 7
+   117→Agent: main
+   118→Task: Infinite auto-advancing event calendar (user: "make this infinite so if fight night 1 happened in oct 17 the UFC 334 should be the next Saturday and it auto changes")
+   119→
+   120→Work Log:
+   121→- ROOT CAUSE found in universe.ts currentSaturday(): it derived the fight week from the REAL clock (new Date()) and only stepped ONE Saturday past it when that week's event completed — after 2+ completed cards the clock pointed at a completed event forever and createEvent blocked with "This week already has an event". The universe could never pass 2 events
+   122→- FIX: currentSaturday() is now PURE universe time — no events = anchor Oct 17 2026; latest event unfinished = clock pinned on its Saturday; latest event completed = next Saturday (latest + 7) unlocks instantly, FOREVER (unbounded chain)
+   123→- Auto event sequence: autoEventType() books the inaugural card as Fight Night 1, then the month's numbered (PPV) slot on the first week that hasn't spent it — exactly FN 1 -> UFC 334 -> FN 2 -> UFC 335...; createEvent(type?) defaults to the auto type, override buttons kept
+   124→- Fight Nights now carry their own infinite counter (UFC Fight Night 1, 2, 3... via nextFightNightNumber()); eventDisplayName()/badges/history/taglines updated; eventTagline() shows "X vs Y" next to card titles
+   125→- THE ROAD AHEAD strip on the create screen: upcomingWeeks(6) projects the next Saturdays with their auto events (verified rolling across months: Nov 7 UFC 335 ... Dec 5 UFC 336)
+   126→- Legacy migration in rehydrateUniverse(): pre-numbering fight nights get back-filled numbers in fight order; old display name kept as SimEvent.legacyName so open wallet bets placed under it still settle (settleBetsForBout now takes a labels array via eventSettleLabels()); jammed legacy calendars un-stick themselves on load
+   127→- scrapEvent() + SCRAP CARD button: an unbuilt card (no results) can be scrapped so the week re-opens (clock can't be pinned forever); RUN FULL CARD toast now announces the unlocked next fight week
+   128→- Rebuilt standalone production server on :3000 (HTTP 200 in 26ms); tsc clean (src), eslint clean
+   129→- E2E verified with agent-browser: FN 1 created Oct 17 -> title bout Gane vs Aspinall (auto TITLE flag) -> RUN FULL CARD -> Aspinall KO R3 took the HW belt, week auto-rolled to Oct 24 offering CREATE UFC 334 -> UFC 334 created, Strickland vs Du Plessis title main -> Du Plessis KO R3 dethroned him, week rolled to Oct 31 offering FIGHT NIGHT 2 only -> FN 2 run -> week rolled to Nov 7 offering UFC 335; reload persistence OK; legacy jammed state (unnamed FN + completed UFC 334) injected -> reload -> un-jammed to Oct 31, FN migrated to FIGHT NIGHT 1 with legacyName captured; mobile 390px zero overflow; zero console errors
+   130→
+   131→Stage Summary:
+   132→- The event calendar is now truly infinite and self-driving: complete any card and the next Saturday unlocks with the correct auto-numbered event (Fight Night counter + UFC counter + one PPV per month), with a visible never-ending schedule strip, stuck-state self-healing, and a scrap-card escape hatch
+   133→
+   134→---
+   135→Task ID: 8
+   136→Agent: main
+   137→Task: Show each fighter's OCTAGONHQ rank (#N / C / UNRANKED) next to their name on event cards (user: "next to every card list the rankings... is the fighter #9 or unranked next to their name in the card")
+   138→
+   139→Work Log:
+   140→- Added hqRankLabel(fighterId) to universe.ts: champion -> "C", top-15 OCTAGONHQ contender -> "#N", everyone else -> "UNRANKED" (mirrors DivisionsTab top-15 convention, driven purely by universe event results)
+   141→- New RankTag chip component in EventsTab.tsx: gold crown "C" chip for champs, neutral "#N" chip for ranked, dim "UNRANKED" chip otherwise; rendered next to BOTH fighters' names in every card BoutRow (red corner: chip before name; blue corner: chip after name, right-aligned mirror) AND in the red/blue corner preview buttons of the add-bout builder
+   142→- Truncation guarded with min-w-0 so long names still ellipsize; chips are shrink-0
+   143→- Tags re-compute live after every simulated bout (BoutRow re-renders via useUniverseVersion)
+   144→- Fixed stale-preview mystery: port 3000 was serving an OLD production standalone build from before the edit (prod server predating the change); rebuilt next build, fresh chunk verified to contain the new chip strings
+   145→- Environment discovery: background processes are reaped between Bash tool calls now — dev/prod servers only live inside a single call; verified the change with a one-shot script (scripts/verify-rank-tags.sh): throwaway dev server on :3100 + agent-browser flow
+   146→- E2E verified: fresh universe -> Fight Night 1 created -> Aspinall (#1) vs Gane (C, HW champ) added to main card -> add-bout previews show "#1 Tom Aspinall" / "C Ciryl Gane" -> bout row on the card shows both chips (count=2 :: #1,C); screenshot rank-tags-check.png
+   147→- tsc clean (src), production build passes
+   148→
+   149→Stage Summary:
+   150→- Event cards now show OCTAGONHQ ranks inline next to every fighter's name (champ crown chip / #1-#15 / UNRANKED), updating live as card results come in
+   151→
+   152→---
+   153→Task ID: 9
+   154→Agent: main
+   155→Task: COPY CARD button — exports the whole event card as clean text (ranks, records, OVR, odds, results) for pasting into ChatGPT (user: "add a copy card button that copies the entire card in nice style like text so I can send it to chatgpt for the bets and ratings of the card")
+   156→
+   157→Work Log:
+   158→- EventsTab.tsx: new cardToText(ev) — header (event name + tagline, date, venue/city, PPV/ESPN+), note that HQ ranks/records are in-universe, then MAIN CARD / PRELIMS / EARLY PRELIMS sections; each bout numbered with [DIVISION TITLE · 5 RDS] tags and two fighter lines: name — rank (e.g. "#1 HW" / "HW CHAMP" / "unranked") · X-X-X HQ · real record · N OVR · american odds; fought bouts get a "✅ Result: X def. Y — method · round/time" line
+   159→- copyCard(ev): navigator.clipboard.writeText with execCommand textarea fallback + toasts; Copy icon from lucide
+   160→- Button placement: (1) next to RUN FULL CARD on the live card (pre-fight, with odds), (2) in the completed-card state, (3) inside each expanded EVENT HISTORY row (completed events roll into history instantly when the card completes, so history is where completed copies happen)
+   161→- Fixed dup bug: resultLine appended ", R3 0:20" while methodText already includes " · R3 0:20" for finishes — removed the duplicate
+   162→- E2E verified with clipboard stub (scripts/verify-copy-card.sh + verify-copy-card2.sh, throwaway dev :3100): pre-fight copy shows full card incl. auto-booked Aspinall vs Gane title bout with odds; completed-history copy shows updated HQ records (Gane 1-0, Topuria 2-0) and result lines
+   163→- tsc clean (src), production build passed, next start restarted on :3000 with fresh chunk (COPY CARD string verified in chunk)
+   164→
+   165→Stage Summary:
+   166→- COPY CARD now exports any card (live or completed) as ChatGPT-ready text with ranks, HQ + real records, OVR ratings, betting odds and results
+   167→
+   168→---
+   169→Task ID: 10
+   170→Agent: main
+   171→Task: (1) Fix stale ranks in fighter picker, (2) ALL button last + HW default, (3) bug sweep, (4) 100% static export for GitHub Pages
+   172→
+   173→Work Log:
+   174→- PICKER RANK BUG (user: "rankings don't update in the rank chooser"): FighterPicker showed the REAL UFC rank (f.rank, never changes) via RankBadge while champ flag flipped live — mixed real/universe data. FIX: picker now shows a live OCTAGONHQ rank chip (HqRankChip via hqRankLabel), sorts by HQ rank (champ → #N → unranked by OVR), and the RANKED/CHAMPIONS filters filter on HQ standings. useUniverseVersion() subscribes the dialog so ranks refresh the moment a bout settles
+   175→- shared.tsx RankBadge (used by FighterProfile + RosterTab grid) switched from real f.rank to live hqRankLabel — profile/roster/rankings/picker/card all agree now; FighterProfileDialog also subscribes via useUniverseVersion; HomeTab P4P rows show HQ rank labels too
+   176→- PERF: hqRankMap() added to universe.ts — computes all 11 division standings ONCE per universe version (cache keyed on internal version counter, invalidated by bump()) so the picker's 670-fighter sort stays instant
+   177→- PICKER UX: default division is now HW (was ALL); ALL button moved to the very END of the division chips (user: "no need to show all 670"); header count reads "N FIGHTERS · OCTAGONHQ RANKS"
+   178→- STATIC EXPORT for GitHub Pages: next.config.ts output: "standalone" → "export", trailingSlash: true, images unoptimized, basePath/assetPrefix from NEXT_PUBLIC_BASE_PATH env (default "" = username.github.io root; set /repo-name for project sites); removed src/app/api/roster-dump route (roster.prebuilt.json is imported directly at build time — zero runtime server dependencies, no fetch calls anywhere); out/.nojekyll added; 404.html generated by Next
+   179→- E2E ON THE STATIC BUILD (python http.server on out/): tabs nav, event create (FN1), picker opens with HW active + ALL last (order=[HW,LHW,...,W-SW,ALL]), 81 live HQ chips render; booked Gane vs Aspinall + Walt Harris vs Alexander Volkov, ran both cards, week auto-rolled Oct 17 → Oct 24 → Oct 31 (infinite calendar works statically); LIVE RANK FLIP PROVEN: Volkov was #2 → KO'd Harris (+4 pts) → picker + Divisions tab both show him as HW contender #1 with Aspinall demoted to #2; Gane CHAMP chip consistent everywhere; zero console errors
+   180→- tsc clean (src), production static build passes; static site now served on :3000 from out/ (3.5MB total)
+   181→- Deploy note: for username.github.io push out/ contents to the repo root; for a project page build with NEXT_PUBLIC_BASE_PATH=/<repo-name> and push out/ (e.g. to gh-pages branch)
+   182→
+   183→Stage Summary:
+   184→- Picker/profile/roster/home ranks are all live OCTAGONHQ ranks (version-cached for speed) and provably update after every event; picker defaults to HW with ALL demoted to the end; the app is now a 100% static export (no server, no API routes) verified E2E on a plain static file server, ready for GitHub Pages
+   185→
+   186→---
+   187→Task ID: 12
+   188→Agent: main (Z.ai)
+   189→Task: Five-bug fix pass — (1) kill the 4x record-duplication glitch, (2) remove all retired status, (3) curated prime ratings for the big names, (4) style-true finish methods (no more Francis submitting Jones), (5) double champs via champ-vs-champ superfights.
+   190→
+   191→Work Log:
+   192→- Root-caused the 4x duplication: the current code's guards (bout.result + settledRunRef) are sound, but the user's localStorage ledger was written by older guard-less builds — 4 copies per bout replay on every load. Prebuilt JSON verified clean (the corruption is storage-side only).
+   193→- universe.ts: rehydrateUniverse now REBUILDS the ledger from event bout results (each fought bout carries exactly one result) — poisoned ledgers heal on load; ledger recs now carry boutId (idempotency key); recordEventBout double-guarded (bout.result AND ledger boutId).
+   194→- types.ts: Fighter.champOf (per-division belt list). belts.ts rewritten: champDivisions(), isSuperfight() (cross-division champ vs champ, same gender), transferBelts() returning BeltChange[] — superfight moves EVERY belt the loser holds to the winner (double champ); classic title fight moves one.
+   195→- universe.ts: isTitleBout covers superfights; divisionStandings finds the division's champ across the whole roster (double champ sits atop both divisions); simP4P uses champDivisions.
+   196→- engine.ts sampleMethod: attribute gates + dominance terms — KO needs power (vs opponent chin), SUB needs a real grappling edge over the opponent. Francis (gr 36) vs Jones: sub chance ~0.3%; Jones vs Francis: 25%.
+   197→- data/ratings.ts (NEW): 145 hand-curated prime patches — every champ, top contender, legend (Jones/Khabib/GSP/Aldo/Anderson...), fan-favorite tier (Bobby Green 54->84 str, Adesanya 1580->1780 elo, Paddy, McGregor, Diaz brothers) + Quillan Salkilld. Applied in data/index.ts at load; missing ids skipped silently.
+   198→- UI: superfight badges (builder preview, card row, COPY CARD tag), belt-transfer toast loops, DOUBLE CHAMP chip + CHAMPION 2× badge + multi-division chips on Home.
+   199→- E2E on static build (:8123 + agent-browser): poisoned 4x ledger -> healed to exactly 1 rec (Gane 1-0, Blaydes 0-1); Francis vs Jones 14 runs -> Francis 0 submissions (4 KO + 2 dec wins); superfight Gane vs Ulberg -> 5 rounds, R5 SDEC, Gane = HW+LHW double champ in both division standings + profile chips; HW defense loss -> Aspinall takes HW, Gane KEEPS LHW; zero console errors; no "retired" text anywhere.
+   200→- Rebuilt out/ (3.5MB), restarted :3000 static preview.
+   201→
+   202→Stage Summary:
+   203→- The 4x glitch is structurally dead: old corrupted saves self-heal on first load of the new build (rebuild-from-events), and double guards make re-recording impossible.
+   204→- Double champs fully supported: book champ vs champ across divisions -> SUPERFIGHT (5 rds, both titles on the line); winner holds both belts, loses only the belt he defends in a same-division title fight.
+   205→- Ratings: 145 big names hand-tuned; finish methods now style-true (strikers KO, grapplers sub, gated by attributes AND opponent resistance).
+   206→- Static export rebuilt and serving at :3000; scripts/verify-five-fixes.sh documents the E2E flow.
+   207→

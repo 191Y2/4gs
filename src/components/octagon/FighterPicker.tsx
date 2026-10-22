@@ -6,7 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Search, X, Crown, Star, Zap } from "lucide-react";
-import { searchFighters, DIVISIONS } from "@/lib/data";
+import { searchFighters, DIVISIONS, DIVISION_MAP } from "@/lib/data";
 import { Fighter, DivisionId } from "@/lib/types";
 import { overallRating } from "@/lib/engine";
 import { hqRankLabel, useUniverseVersion } from "@/lib/universe";
@@ -68,7 +68,11 @@ export function FighterPickerDialog({
   }, [open]);
 
   const list = useMemo(() => {
-    let l = searchFighters(query, division, filter).filter((f) => !excludeIds.includes(f.id));
+    // SEARCH SPANS ALL DIVISIONS — typing "Gaethje" must find the LW champ
+    // even while the HW chip is active. Division chips only scope BROWSING;
+    // a query temporarily widens the net to the whole roster.
+    const scope = query.trim() ? ("all" as const) : division;
+    let l = searchFighters(query, scope, filter).filter((f) => !excludeIds.includes(f.id));
     // HQ-aware filters: ranked = top-15 OCTAGONHQ, champions = current HQ champs
     if (filter === "ranked") l = l.filter((f) => /^#/.test(hqRankLabel(f.id)));
     if (filter === "champions") l = l.filter((f) => hqRankLabel(f.id) === "C");
@@ -183,6 +187,19 @@ export function FighterPickerDialog({
                     <Zap className="h-2.5 w-2.5 text-[#e0b64c]" /> {overallRating(f)} OVR
                   </span>
                 </div>
+                {/* division tag when the list spans divisions (search / ALL) */}
+                {(query.trim() || division === "all") && (
+                  <span
+                    className="ml-1 shrink-0 rounded border px-1.5 py-0.5 text-[9px] font-display font-bold tracking-wider"
+                    style={{
+                      borderColor: `${DIVISION_MAP[f.division].color}66`,
+                      color: DIVISION_MAP[f.division].color,
+                      background: `${DIVISION_MAP[f.division].color}14`,
+                    }}
+                  >
+                    {DIVISION_MAP[f.division].shortName}
+                  </span>
+                )}
               </button>
             ))}
           </div>

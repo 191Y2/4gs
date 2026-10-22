@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { motion } from "framer-motion";
-import { searchFighters, DIVISIONS, ROSTER, LEGENDS } from "@/lib/data";
+import { searchFighters, DIVISIONS, DIVISION_MAP, ROSTER, LEGENDS } from "@/lib/data";
 import { DivisionId, Fighter } from "@/lib/types";
 import { overallRating, currentStreak } from "@/lib/engine";
 import { simRecord, useUniverseVersion } from "@/lib/universe";
@@ -12,7 +12,7 @@ import { FighterAvatar, Flag, RecordText, RankBadge, WinMethodBar } from "./shar
 import { Search, X, Crown, Star, Zap, TrendingUp, Trophy } from "lucide-react";
 import { Input } from "@/components/ui/input";
 
-function FighterTile({ fighter, i }: { fighter: Fighter; i: number }) {
+function FighterTile({ fighter, i, showDivision }: { fighter: Fighter; i: number; showDivision?: boolean }) {
   const { openProfile } = useApp();
   return (
     <motion.button
@@ -50,6 +50,18 @@ function FighterTile({ fighter, i }: { fighter: Fighter; i: number }) {
         </span>
         <span className="text-zinc-700">·</span>
         <span className="truncate">{fighter.style}</span>
+        {/* division tag when the grid spans divisions (search / ALL) */}
+        {showDivision && (
+          <span
+            className="shrink-0 rounded border px-1 py-px text-[9px] font-display font-bold tracking-wider"
+            style={{
+              borderColor: `${DIVISION_MAP[fighter.division].color}66`,
+              color: DIVISION_MAP[fighter.division].color,
+            }}
+          >
+            {DIVISION_MAP[fighter.division].shortName}
+          </span>
+        )}
       </div>
       <div className="mt-3"><WinMethodBar fighter={fighter} /></div>
       <div className="mt-2.5 flex items-center justify-between">
@@ -71,7 +83,10 @@ export function RosterTab() {
   const [sort, setSort] = useState<"ovr" | "elo" | "name">("ovr");
 
   const list = useMemo(() => {
-    let l = searchFighters(query, division, filter);
+    // SEARCH SPANS ALL DIVISIONS — same rule as the bout-builder picker:
+    // typing "Gaethje" finds the LW champ even while HW is the active chip.
+    const scope = query.trim() ? ("all" as const) : division;
+    let l = searchFighters(query, scope, filter);
     if (sort === "ovr") l = [...l].sort((a, b) => overallRating(b) - overallRating(a));
     else if (sort === "elo") l = [...l].sort((a, b) => b.elo - a.elo);
     else l = [...l].sort((a, b) => a.name.localeCompare(b.name));
@@ -160,7 +175,7 @@ export function RosterTab() {
 
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
         {list.map((f, i) => (
-          <FighterTile key={f.id} fighter={f} i={i} />
+          <FighterTile key={f.id} fighter={f} i={i} showDivision={query.trim() !== "" || division === "all"} />
         ))}
       </div>
       {list.length === 0 && (

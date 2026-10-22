@@ -204,3 +204,18 @@ Stage Summary:
 - Double champs fully supported: book champ vs champ across divisions -> SUPERFIGHT (5 rds, both titles on the line); winner holds both belts, loses only the belt he defends in a same-division title fight.
 - Ratings: 145 big names hand-tuned; finish methods now style-true (strikers KO, grapplers sub, gated by attributes AND opponent resistance).
 - Static export rebuilt and serving at :3000; scripts/verify-five-fixes.sh documents the E2E flow.
+
+---
+Task ID: 13
+Agent: main (Z.ai)
+Task: (1) "Wheres Justin Gaethje" — fighter invisible in search; (2) quick bug verification pass; (3) guarantee 100% static serving.
+
+Work Log:
+- ROOT CAUSE of missing Gaethje: he IS in the roster (LW champ, 28-5, 90 OVR — shows on Home champs strip, Divisions, and Fighter Database) but the BOUT-BUILDER / FIGHT LAB FighterPicker defaults to the HW division chip and search only filtered WITHIN the active division — typing "Gaethje" returned "0 FIGHTERS" unless you happened to click LW first. Same latent bug in RosterTab when a division chip was active.
+- FIX: in both FighterPicker.tsx and RosterTab.tsx, a non-empty query now widens the search scope to ALL divisions (division chips scope browsing only); cross-division results carry a color-coded division tag (LW/FW/etc.) on every row/tile so you can see where a fighter lives. Verified E2E: picker with HW active + query "Gaethje" -> "JG Justin Gaethje 'The Highlight' 28-5-0 · CHAMP 90 OVR LW" in BOTH the event bout builder and Fight Lab; Fighters tab shows the LW tag.
+- Regression sweep on the fix: booked Gaethje vs Topuria (dev) -> Topuria SUB R4, belt moved to Topuria, Gaethje showed live "#1"; booked Gaethje vs Poirier (static) -> KO R3 title defense, Gaethje kept the belt, ledger EXACTLY 1 rec before and after reload (4x dup fix holds), week auto-rolled to Oct 24 offering UFC 334 / FN 2, next-fight-week infinite calendar intact.
+- FULLY STATIC: deleted dead src/lib/db.ts (Prisma client, zero importers); confirmed no API routes, zero fetch/axios calls, no dynamic server APIs anywhere in src/; build script rewritten for export (`next build && touch out/.nojekyll`), start script = `python3 -m http.server 3000 -d out`; rebuilt out/ (3.5MB, all routes prerendered static ○).
+- E2E on the STATIC build served from out/ on :3000: home/divisions/fighters/events/fight-lab all render, Gaethje findable everywhere, event create -> run -> belt/record/rankings update -> reload persistence -> zero console errors, no overflow at 390px (screenshot static-mobile.png).
+
+Stage Summary:
+- The "missing Gaethje" bug is dead: search now spans all 11 divisions regardless of the active division chip, with division tags on results. All prior fixes (4x heal, belts, ratings, finishes, double champs) regression-verified intact. The app is provably 100% static (no server, no DB, no fetch) and is being served from out/ on :3000 — upload out/ to GitHub Pages as-is.
